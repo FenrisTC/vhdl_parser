@@ -1,0 +1,6 @@
+[package]
+name = "vhdl_parser_2"
+version = "0.1.0"
+authors = ["Sebastian Schüller <schueller.se@gmail.comB>"]
+
+[dependencies]
