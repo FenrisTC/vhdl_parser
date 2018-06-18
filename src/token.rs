@@ -1,12 +1,18 @@
 // Token definitions
 // Author: Sebastian Schüller <schueller.ti.uni-bonn.de>
 
+use SrcPos;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
-    pub str_range: (usize, usize),
-    pub file_pos:  (usize, usize),
+    pub pos: SrcPos,
+}
+
+impl Token {
+    pub fn invalid() -> Token {
+        Token { kind: TokenKind::Invalid, pos: SrcPos(0,0), }
+    }
 }
 
 impl Token {
@@ -103,10 +109,20 @@ impl Token {
             "protected"     => Some(Keyword::Protected),
             "context"       => Some(Keyword::Context),
             "parameter"     => Some(Keyword::Parameter),
+            "mod"           => Some(Keyword::Mod),
+            "rem"           => Some(Keyword::Rem),
+            "and"           => Some(Keyword::And),
+            "or"            => Some(Keyword::Or),
+            "xor"           => Some(Keyword::Xor),
+            "nand"          => Some(Keyword::Nand),
+            "nor"           => Some(Keyword::Nor),
+            "abs"           => Some(Keyword::Abs),
+            "not"           => Some(Keyword::Not),
             _               => None
         }
     }
 
+    /*
     pub fn match_operator(i: &str) -> Option<TokenKind> {
         match i.to_ascii_lowercase().as_ref() {
             "mod"  => Some(TokenKind::Mod),
@@ -121,6 +137,7 @@ impl Token {
             _      => None,
         }
     }
+    */
 }
 
 #[allow(dead_code)]
@@ -170,27 +187,19 @@ pub enum TokenKind {
     Star,        // *
     StarStar,    // **
     Slash,       // /
-    Mod,         // mod
-    Rem,         // rem
-    And,         // and
-    Or,          // or
-    Xor,         // xor
-    Nand,        // nand
-    Nor,         // nor
-    Abs,         // abs
-    Not,         // not
 
     // VHDL 2008
     LtLt,          // <<
     GtGt,          // >>
     Caret,         // ^
-    OpQQ,          // ??
+    QQ,          // ??
 
     // Non-Semantic symbols
     Comment,
     Whitespace,
     Linebreak,
     EoF,
+    Invalid,
 }
 
 #[allow(dead_code)]
@@ -268,6 +277,16 @@ pub enum Keyword {
     When,
     While,
     With,
+
+    Mod,
+    Rem,
+    And,
+    Or,
+    Xor,
+    Nand,
+    Nor,
+    Abs,
+    Not,
 
     // VHDL 1993
     Xnor,

@@ -2,39 +2,49 @@
 use token::*;
 use token::TokenKind::*;
 
+use SrcPos;
+
 #[derive(Debug, Clone)]
-pub struct SrcInfo<'a> {
+pub struct ParseContext<'a> {
     pub txt: &'a str,
     pub line_offsets: Vec<usize>,
 }
 
-impl<'a> SrcInfo<'a> {
-    pub fn from_str(src: &str) -> SrcInfo {
-        SrcInfo {
+impl<'a> From<&'a str> for ParseContext<'a> {
+    fn from(src: &'a str) -> ParseContext {
+        ParseContext {
             txt: src,
             line_offsets: Vec::default(),
         }
     }
 }
 
+impl<'srcfile> ParseContext<'srcfile> {
+    pub fn text_from_pos(&self, pos: SrcPos) -> &str {
+        &self.txt[(pos.0 as usize) .. (pos.1 as usize)]
+    }
+}
+
 #[derive(Debug)]
 pub struct ScanInfo<'a> {
-    pub src: & 'a mut SrcInfo<'a>,
+    pub ctx: & 'a mut ParseContext<'a>,
     pub byte_index: usize,
     pub next_ch: Option<char>,
 }
 
-impl<'a> ScanInfo<'a> {
-    pub fn from_src_info(src: &'a mut SrcInfo<'a>) -> ScanInfo<'a> {
+impl<'a> From<&'a mut ParseContext<'a>> for ScanInfo<'a> {
+    fn from(ctx: &'a mut ParseContext<'a>) -> ScanInfo<'a> {
         ScanInfo {
-            src: src,
+            ctx: ctx,
             byte_index: 0,
-            next_ch: src.txt.chars().next(),
+            next_ch: ctx.txt.chars().next(),
         }
     }
+}
 
-    fn is_eof(&self) -> bool {
-        self.byte_index == self.src.txt.len()
+impl<'a> ScanInfo<'a> {
+    pub fn is_eof(&self) -> bool {
+        self.byte_index == self.ctx.txt.len()
     }
 
     fn skip_whitespace(&mut self) {
@@ -62,26 +72,26 @@ impl<'a> ScanInfo<'a> {
         if self.is_eof() { return; }
         let c = self.next_ch.unwrap();
         if c == '\n' {
-            self.src.line_offsets.push(self.byte_index);
+            self.ctx.line_offsets.push(self.byte_index);
         }
 
         let new_index = self.byte_index + c.len_utf8();
-        self.next_ch = self.src.txt[new_index..].chars().next();
+        self.next_ch = self.ctx.txt[new_index..].chars().next();
         self.byte_index = new_index;
     }
 
     fn set_idx(&mut self, idx: usize) {
-        if idx > self.src.txt.len() { panic!(); }
+        if idx > self.ctx.txt.len() { panic!(); }
         self.byte_index = idx;
-        self.next_ch    = self.src.txt[idx..].chars().next();
+        self.next_ch    = self.ctx.txt[idx..].chars().next();
     }
 
 
     fn char_at(&self, n: usize) -> Option<char> {
-        self.src.txt[n..].chars().next()
+        self.ctx.txt[n..].chars().next()
     }
 
-    fn scan_extended_identifier(&mut self) -> Option<Token> {
+    fn scan_extended_identifier(&mut self) -> Token {
         debug_assert!(self.next_ch == Some('\\'));
         let start = self.byte_index;
 
@@ -91,10 +101,10 @@ impl<'a> ScanInfo<'a> {
             self.advance_ch();
             return make_tok(start, self.byte_index, Ident);
         }
-        None
+        make_tok(start, self.byte_index, EoF)
     }
 
-    fn scan_string_literal(&mut self) -> Option<Token> {
+    fn scan_string_literal(&mut self) -> Token {
         debug_assert!(self.next_ch == Some('"'));
         let start = self.byte_index;
         self.advance_ch();
@@ -109,36 +119,36 @@ impl<'a> ScanInfo<'a> {
                     self.advance_ch();
                     return make_tok(start, self.byte_index, StringLiteral);
                 },
-                (_, None) => return None, // @Error handling: this is a broken string lit. Report this to user.
+                (_, None) => return make_tok(start, self.byte_index, Invalid), // @Error handling: this is a broken string lit. Report this to user.
                 _ => (),
             }
             self.advance_ch();
         }
     }
 
-    fn scan_bit_literal(&mut self, start: usize) -> Option<Token> {
+    fn scan_bit_literal(&mut self, start: usize) -> Token {
         self.skip_while(|c| is_base_specifier(c));
         if !self.ch_is(|c| c == '"') {
-            return None;
+            return make_tok(start, self.byte_index, Invalid);
         }
         self.advance_ch();
 
         if !self.ch_is(|c| is_graphic_char(c)) {
-            return None;
+            return make_tok(start, self.byte_index, Invalid);
         }
         self.skip_while(|c| is_graphic_char(c) || c == '_');
 
         if !self.ch_is(|c| c == '"') {
-            return None;
+            return make_tok(start, self.byte_index, Invalid);
         }
         self.advance_ch();
 
         return make_tok(start, self.byte_index, BitStringLiteral);
     }
 
-    pub fn scan_token(&mut self) -> Option<Token> {
+    pub fn scan_token(&mut self) -> Token {
         self.skip_whitespace();
-        if self.is_eof() { return None; }
+        if self.is_eof() { return make_tok(self.byte_index, self.byte_index, EoF); }
 
         let start = self.byte_index;
         let c = self.next_ch.unwrap();
@@ -150,10 +160,7 @@ impl<'a> ScanInfo<'a> {
             self.skip_while(|c| can_continue_ident(c));
             let end = self.byte_index;
 
-            let s = &self.src.txt[start..end];
-            if let Some(kind) = Token::match_operator(s) {
-                return make_tok(start, end, kind);
-            }
+            let s = &self.ctx.txt[start..end];
 
             if let Some(kind) = Token::match_keyword(s) {
                 return make_tok(start, end, Kw(kind));
@@ -178,7 +185,7 @@ impl<'a> ScanInfo<'a> {
                     if self.next_ch.map_or(false, |c| can_start_integer(c)) {
                         return make_tok(start, self.byte_index, NumDecLiteral);
                     }
-                    return None;
+                    return make_tok(start, self.byte_index, EoF);
                 },
                 Some('#') => { // We found a base number literal
                     //
@@ -194,25 +201,25 @@ impl<'a> ScanInfo<'a> {
                     //
                     self.advance_ch();
                     if !self.ch_is(|c| c.is_digit(16)) {
-                        return None;
+                        return make_tok(start, self.byte_index, Invalid);
                     }
                     self.skip_while(|c| c.is_digit(16) || c == '_');
 
                     if self.ch_is(|c| c == '.') {
                         self.advance_ch();
                         if !self.ch_is(|c| c.is_digit(16)) {
-                            return None;
+                            return make_tok(start, self.byte_index, EoF);
                         }
                         self.skip_while(|c| c.is_digit(16) || c == '_');
                     }
 
                     if !self.ch_is(|c| c == '#') {
-                        return None;
+                        return make_tok(start, self.byte_index, EoF);
                     }
                     self.advance_ch();
 
                     if !self.ch_is(|c| c == 'e') {
-                        return None;
+                        return make_tok(start, self.byte_index, Invalid);
                     }
 
                     let c = self.next_ch;
@@ -258,8 +265,8 @@ impl<'a> ScanInfo<'a> {
             _   => (),
         };
 
-        if end == self.src.txt.len() {
-            return None;
+        if end == self.ctx.txt.len() {
+            return make_tok(start, self.byte_index, EoF);
         }
 
         let peek = self.char_at(end).unwrap();
@@ -300,7 +307,7 @@ impl<'a> ScanInfo<'a> {
                         // @Incomplete: We should probably indicate that
                         // this multiline comment is never finished and thus
                         // broken.
-                        return None;
+                        return make_tok(start, self.byte_index, EoF);
                     }
                     if c == Some('/') {
                         break;
@@ -313,8 +320,8 @@ impl<'a> ScanInfo<'a> {
             return make_tok(start, self.byte_index, Comment);
         }
 
-        if end == self.src.txt.len() {
-            return None;
+        if end == self.ctx.txt.len() {
+            return make_tok(start, self.byte_index, EoF);
         }
 
         let peek2 = self.char_at(end).unwrap();
@@ -342,12 +349,11 @@ impl<'a> ScanInfo<'a> {
 
 }
 
-fn make_tok(start: usize, end: usize, kind: TokenKind) -> Option<Token> {
-    Some(Token {
+fn make_tok(start: usize, end: usize, kind: TokenKind) -> Token {
+    Token {
         kind: kind,
-        str_range: (start, end),
-        file_pos: (0,0),
-    })
+        pos: SrcPos(start as u32, end as u32),
+    }
 }
 
 
@@ -391,4 +397,3 @@ fn can_start_integer(c: char) -> bool {
 fn is_integer(c: char) -> bool {
     c.is_ascii_digit() || c == '_'
 }
-

@@ -1,48 +1,48 @@
-extern crate vhdl_parser_2;
+extern crate vhdl_parser;
 
-use vhdl_parser_2::token::*;
-use vhdl_parser_2::lexer::*;
+use vhdl_parser::token::*;
+use vhdl_parser::lexer::*;
 
 #[test]
 fn simple_test() {
     let test_str = "use ieee.std_logic_1164.all;";
     {
-        let mut src_info = SrcInfo {
+        let mut parse_ctx = ParseContext {
             txt: &test_str,
             line_offsets: Vec::default()
         };
 
-        let mut lex_info = ScanInfo::from_src_info(&mut src_info);
-        let tok = lex_info.scan_token().unwrap();
+        let mut lex_info = ScanInfo::from(&mut parse_ctx);
+        let tok = lex_info.scan_token();
         assert_eq!(tok.kind, TokenKind::Kw(Keyword::Use),
-            "{:?}, {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
-
-        let tok = lex_info.scan_token().unwrap();
-        assert_eq!(tok.kind, TokenKind::Ident,
-            "{:?}, : {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
-
-        let tok = lex_info.scan_token().unwrap();
-        assert_eq!(tok.kind, TokenKind::Dot,
-            "{:?}, : {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
-
-        let tok = lex_info.scan_token().unwrap();
-        assert_eq!(tok.kind, TokenKind::Ident,
-            "{:?}, : {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
-
-        let tok = lex_info.scan_token().unwrap();
-        assert_eq!(tok.kind, TokenKind::Dot,
-            "{:?}, : {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
-
-        let tok = lex_info.scan_token().unwrap();
-        assert_eq!(tok.kind, TokenKind::Kw(Keyword::All),
-            "{:?}, : {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
-
-        let tok = lex_info.scan_token().unwrap();
-        assert_eq!(tok.kind, TokenKind::Semicolon,
-            "{:?}, : {:?}", tok, String::from(&test_str[tok.str_range.0..tok.str_range.1]));
+            "{:?}, {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
 
         let tok = lex_info.scan_token();
-        assert!(tok.is_none());
+        assert_eq!(tok.kind, TokenKind::Ident,
+            "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
+
+        let tok = lex_info.scan_token();
+        assert_eq!(tok.kind, TokenKind::Dot,
+            "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
+
+        let tok = lex_info.scan_token();
+        assert_eq!(tok.kind, TokenKind::Ident,
+            "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
+
+        let tok = lex_info.scan_token();
+        assert_eq!(tok.kind, TokenKind::Dot,
+            "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
+
+        let tok = lex_info.scan_token();
+        assert_eq!(tok.kind, TokenKind::Kw(Keyword::All),
+            "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
+
+        let tok = lex_info.scan_token();
+        assert_eq!(tok.kind, TokenKind::Semicolon,
+            "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
+
+        let tok = lex_info.scan_token();
+        assert!(tok.kind == TokenKind::EoF);
     }
 }
 
@@ -50,13 +50,17 @@ fn simple_test() {
 fn test_simple_file() {
     let test_str = include_str!("./test_data/hello.vhd");
 
-    let mut src_info = SrcInfo::from_str(&test_str);
+    let mut parse_context = ParseContext::from(test_str);
 
-    let mut lex_info = ScanInfo::from_src_info(&mut src_info);
+    let mut lex_info = ScanInfo::from(&mut parse_context);
 
     let mut tokens: Vec<Token> = Vec::default();
-    while let Some(tok) = lex_info.scan_token() {
-        tokens.push(tok);
+    loop {
+        let tok = lex_info.scan_token();
+        tokens.push(tok.clone());
+        if tok.kind == TokenKind::EoF || tok.kind == TokenKind::Invalid {
+            break;
+        }
     }
 
     println!("");
