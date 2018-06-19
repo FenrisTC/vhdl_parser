@@ -146,6 +146,7 @@ impl Op {
 
     pub fn unary_from_token(t: &Token) -> Option<Op> {
         match t.kind {
+            QQ       => Some(Op::QQ),
             Plus     => Some(Op::UnPos),
             Minus    => Some(Op::UnNeg),
             Kw(And)  => Some(Op::UnAnd),
@@ -188,9 +189,20 @@ impl Op {
 }
 
 #[derive(Debug, Clone)]
-pub struct NumericLiteral {
+pub struct NumericLit {
+    pub pos: SrcPos,
 }
 
+
+#[derive(Debug, Clone)]
+pub struct StringLit {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone)]
+pub struct CharLit {
+    pub pos: SrcPos,
+}
 
 #[derive(Debug, Clone)]
 pub enum Direction {
@@ -256,10 +268,12 @@ pub enum ExprKind {
     Qualified(QualifiedExpr),
     TypeCast(TypeCastExpr),
     Name(Name),
-    NumericLiteral(NumericLiteral),
     Range(RangeExpr),
     Assoc(AssocExpr),
     Aggregate(Vec<Expr>),
+    NumLit(NumericLit),
+    StrLit(StringLit),
+    ChrLit(CharLit),
     Other,
 }
 
@@ -303,10 +317,10 @@ pub struct Signature {
 
 #[derive(Debug, Clone)]
 pub enum SegmentKind {
-    QualifiedExpr(Expr),
+    QualifiedExpr(Box<Expr>),
     UnparsedBlob(Vec<Token>),
     CharLiteral(char),
-    Signature(Signature),
+    Signature(Box<Signature>),
     Attribute,
     AllQualifier,
     OperatorSymbol(Op),

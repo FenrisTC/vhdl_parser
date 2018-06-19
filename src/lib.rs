@@ -28,11 +28,11 @@ impl SrcPos {
 }
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ParseError {
     ExprChoicesWithoutDesignator,
     InvalidOpSymbolString,
-    UnexpectedToken,
+    UnexpectedToken(token::Token, String),
     UnexpectedEoF,
     Internal,
 }

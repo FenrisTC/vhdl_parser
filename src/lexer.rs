@@ -19,6 +19,12 @@ impl<'a> From<&'a str> for ParseContext<'a> {
     }
 }
 
+impl<'a> ParseContext<'a> {
+    pub fn string_at_pos(&self, pos: &SrcPos) -> String {
+        String::from(&self.txt[pos.as_range()])
+    }
+}
+
 impl<'srcfile> ParseContext<'srcfile> {
     pub fn text_from_pos(&self, pos: SrcPos) -> &str {
         &self.txt[(pos.0 as usize) .. (pos.1 as usize)]
@@ -233,7 +239,6 @@ impl<'a> ScanInfo<'a> {
                 Some(x) if is_base_specifier(x) => return self.scan_bit_literal(start),
                 _  => (),
             }
-            self.advance_ch();
             if let Some('e') = self.next_ch {
                 self.advance_ch();
                 let c = self.next_ch;
@@ -324,8 +329,8 @@ impl<'a> ScanInfo<'a> {
             return make_tok(start, self.byte_index, EoF);
         }
 
-        let peek2 = self.char_at(end).unwrap();
-        let end2  = end + peek2.len_utf8();
+        let peek2 = self.char_at(end1).unwrap();
+        let end2  = end1 + peek2.len_utf8();
 
         match(c,peek,peek2) {
             ('\'',x,'\'') if is_graphic_char(x) => {
@@ -339,6 +344,7 @@ impl<'a> ScanInfo<'a> {
             ('?','=', ..) => { self.set_idx(end1); return make_tok(start, end1, QEq)},
             ('?','<', ..) => { self.set_idx(end1); return make_tok(start, end1, QLt)},
             ('?','>', ..) => { self.set_idx(end1); return make_tok(start, end1, QGt)},
+            ('?','?', ..) => { self.set_idx(end1); return make_tok(start, end1, QQ)},
             ('?',     ..) => (),
             _ => (),
         };

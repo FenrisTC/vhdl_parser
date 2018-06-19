@@ -51,26 +51,29 @@ impl<'a> From<&'a mut ParseContext<'a>> for ParseInfo<'a> {
 
 impl<'a> ParseInfo<'a> {
     fn unexpected_tok<T>(&mut self) -> PResult<T> {
-        let err = ParseError::UnexpectedToken;
-        self.errors.push(err);
+        let err = ParseError::UnexpectedToken(
+            self.tok.clone(),
+            self.scan.ctx.string_at_pos(&self.pos()),
+        );
+        self.errors.push(err.clone());
         Err(err)
     }
 
     fn unexpected_eof<T>(&mut self) -> PResult<T> {
         let err = ParseError::UnexpectedEoF;
-        self.errors.push(err);
+        self.errors.push(err.clone());
         Err(err)
     }
 
     fn invalid_op_symbol<T>(&mut self) -> PResult<T> {
         let err = ParseError::InvalidOpSymbolString;
-        self.errors.push(err);
+        self.errors.push(err.clone());
         Err(err)
     }
 
     fn expr_choices_without_designator<T>(&mut self) -> PResult<T> {
         let err = ParseError::ExprChoicesWithoutDesignator;
-        self.errors.push(err);
+        self.errors.push(err.clone());
         Err(err)
     }
 
@@ -107,12 +110,15 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
     #[allow(dead_code)]
     fn parse_expr_atom(&mut self) -> PResult<Expr> {
+        //println!("Entering parse_expr_atom on tok: {:?}", self.kind());
         self.expected.extend_from_slice(&[
             Plus, Minus, Kw(And), Kw(Or), Kw(Xor), Kw(Not), Kw(Nand),
             Kw(Nor), Kw(Xnor)
         ]);
         let start = self.pos();
         if let Some(op) = Op::unary_from_token(&self.tok) {
+            //println!("Parsing unary token");
+            self.advance_tok();
 
             let rhs = self.parse_expr_with_precedence(op.precedence())?;
             let unop = ExprKind::new_unop(op, rhs);
@@ -120,15 +126,44 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return Ok(Expr::new(range, unop));
         }
 
+        if self.tok_is_one_of(&[NumDecLiteral, NumBaseLiteral]) {
+            //println!("Parse NumLit");
+            self.advance_tok();
+            let range = start.to(&self.pos());
+            return Ok(Expr::new(range, ExprKind::NumLit(NumericLit {
+                pos: range,
+            })));
+        }
+
+        if self.tok_is_one_of(&[StringLiteral, BitStringLiteral]) {
+            //println!("Parse StrLit");
+            self.advance_tok();
+            let range = start.to(&self.pos());
+            return Ok(Expr::new(range, ExprKind::StrLit(StringLit {
+                pos: range,
+            })));
+        }
+
+        if self.tok_is(CharLiteral) {
+            //println!("Parse CharLit");
+            self.advance_tok();
+            let range = start.to(&self.pos());
+            return Ok(Expr::new(range, ExprKind::ChrLit(CharLit {
+                pos: range,
+            })));
+        }
+
         if self.tok_is(Kw(Others)) {
+            //println!("Parse Others");
             self.advance_tok();
             let range = start.to(&self.pos());
             return Ok(Expr::new(range, ExprKind::Other));
         }
 
         if self.tok_is(Ident) {
+            //println!("Parse Ident");
             let name = self.parse_name()?;
-            let range = start.to(&self.pos());
+            let range = start.to(&name.pos);
             return Ok(Expr::new(range, ExprKind::Name(name)));
         }
 
@@ -137,6 +172,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.advance_tok(); // Eat (
             let mut aggregates =  Vec::<Expr>::default();
             'aggregate_exprs: loop {
+                //println!("Entering aggregate loop");
                 let mut choices = Vec::<Expr>::default();
                 let mut expr = self.parse_expression()?;
 
@@ -147,6 +183,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         expr = self.parse_expression()?;
                     } else {
                         let dir = Direction::from(self.kind());
+                        self.advance_tok();
                         let lhs = expr;
                         let rhs = self.parse_expression()?;
                         expr = Expr::new(lhs.pos.to(&rhs.pos), ExprKind::Range(
@@ -183,49 +220,59 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 self.advance_tok();
             }
 
+            let pos = start.to(&self.pos());
             if self.tok_is(RParen) {
                 self.advance_tok(); // Eat )
             }
 
-            let pos = start.to(&self.pos());
+            if aggregates.len() == 1 {
+                return Ok(aggregates.pop().unwrap());
+            }
             let expr = Expr::new(pos, ExprKind::Aggregate(aggregates));
 
             return Ok(expr);
         }
 
+        return self.unexpected_tok();
 
-
-        unimplemented!();
     }
 
     fn parse_expr_with_precedence(&mut self, prec: u32) -> PResult<Expr> {
+        //println!("Entering parse_expr_with_precedence on tok {:?}: {}", self.kind(), self.scan.ctx.text_from_pos(self.pos()));
         let start = self.pos();
         let lhs = self.parse_expr_atom()?;
+        //println!("Returng form parse_expr_atom on tok: {:?}", self.kind());
 
-        let op = Op::from_token(&self.tok);
-        if op.is_none() {
-            return Ok(lhs);
+        let mut result = lhs;
+        loop {
+            //println!("Entering loop with precedence {}", prec);
+            let op = Op::from_token(&self.tok);
+            if op.is_none() {
+                break;
+            }
+            let op = op.unwrap();
+
+            if op.precedence() < prec {
+                println!("Breaking loop on op with prec: {:?}: {:?}", op, op.precedence());
+                break;
+            }
+            self.advance_tok();
+
+            let next_prec = if op.assoc() == Assoc::Left {
+                op.precedence() + 1
+            } else {
+                op.precedence()
+            };
+
+            let rhs = self.parse_expr_with_precedence(next_prec)?;
+            let pos = start.to(&rhs.pos);
+            result = Expr::new(pos, ExprKind::BinOp(BinOpExpr {
+                lhs: Box::new(result),
+                op,
+                rhs: Box::new(rhs),
+            }));
         }
-        let op = op.unwrap();
-
-        if op.precedence() < prec {
-            return Ok(lhs);
-        }
-
-        let next_prec = if op.assoc() == Assoc::Left {
-            prec + 1
-        } else {
-            prec
-        };
-
-        let rhs = self.parse_expr_with_precedence(next_prec)?;
-        let pos = start.to(&self.pos());
-        let expr = Expr::new(pos, ExprKind::BinOp(BinOpExpr {
-            lhs: Box::new(lhs),
-            op,
-            rhs: Box::new(rhs),
-        }));
-        return Ok(expr);
+        return Ok(result);
     }
 
     pub fn parse_expression(&mut self) -> PResult<Expr> {
@@ -327,7 +374,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     let signature = self.parse_signature()?;
                     name.segments.push(NameSegment {
                         pos: signature.pos,
-                        kind: SegmentKind::Signature(signature),
+                        kind: SegmentKind::Signature(Box::new(signature)),
                     });
 
                 },
@@ -342,7 +389,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         let expr = self.parse_expression()?;
                         name.segments.push(NameSegment {
                             pos: expr.pos,
-                            kind: SegmentKind::QualifiedExpr(expr),
+                            kind: SegmentKind::QualifiedExpr(Box::new(expr)),
                         });
                         break;
                     }
@@ -383,6 +430,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     self.advance_tok(); // Eat (
 
                     let start_pos = self.pos();
+                    let mut end_pos = start_pos;
                     let mut tokens = Vec::<Token>::default();
                     let mut open_count = 0;
                     while !(open_count == 0 && self.kind() == RParen) {
@@ -399,13 +447,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         }
 
                         tokens.push(self.tok.clone());
+                        end_pos = self.pos();
                         self.advance_tok();
                     }
 
                     debug_assert!(self.kind() == RParen);
 
                     name.segments.push( NameSegment {
-                        pos: start_pos.to(&self.pos()),
+                        pos: start_pos.to(&end_pos),
                         kind: SegmentKind::UnparsedBlob(tokens),
                     });
 
@@ -415,8 +464,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             };
         }
 
-        //name.pos = name.pos.to(&name.segments.last().unwrap().pos);
-        name.pos = name.pos.to(&self.pos());
+        name.pos = name.pos.to(&name.segments.last().unwrap().pos);
 
         Ok(name)
     }

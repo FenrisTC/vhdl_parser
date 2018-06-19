@@ -8,21 +8,73 @@ use vhdl_parser::parser::*;
 #[test]
 fn test_names() {
 
-    //let test_name = "ieee.std_logic_1164.all";
-    //let test_name = "attr'high";
-    let test_name = "push [ieee.std_logic return bit]";
+    let names = [
+        "ieee.std_logic_1164.all",
+        "attr'high",
+        "push [ieee.std_logic return bit]",
+        "vec(5)",
+        "ifles'name(5)",
+        "ifles'name.uea(5)",
+        "push [ieee.std_logic return bit]'path",
+    ];
 
-    let mut ctx    : ParseContext = test_name.into();
-    let mut parser : ParseInfo = (&mut ctx).into();
-    let name = parser.parse_name();
+    for &name in names.iter() {
+        //println!("Testing String: {}", name);
+        let mut ctx    : ParseContext = name.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_name = parser.parse_name();
 
-    println!("{:?}", name);
-    assert!(name.is_ok());
+        //println!("{:?}", ast_name);
+        /*{
+            let mut ctx = ParseContext::from(name);
+            let mut lx : ScanInfo = (&mut ctx).into();
+            loop {
+                let tok = lx.scan_token();
+                println!("Token: {:#?}", tok);
+                if tok.kind == TokenKind::EoF { break; }
+            }
+        }*/
+        assert!(ast_name.is_ok());
 
-    let name = name.unwrap();
-    println!("{:#?}", name);
-    println!("{:?}", parser.tok);
-    println!("length: {:?}", test_name.len());
+        let ast_name = ast_name.unwrap();
+        //println!("{:#?}", ast_name);
+        //println!("{:?}", parser.tok);
+        //println!("length: {:?}", name.len());
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+}
 
+#[test]
+fn test_exprs() {
+    let exprs = [
+        "127",
+        "(127)",
+        "5 + 5",
+        "(5 + 5)",
+        "(5 * 3 + 5 ** 2)",
+        "(a = 5 or (??b))",
+        "rising_edge(clk) and o_vld = '1'",
+        "(127 downto 96 => '1', others => '0')",
+        "info.length + (4 - info.length(1 downto 0))"
+    ];
+
+    for &expr in exprs.iter() {
+        println!();
+        println!("Testing Expr: {}", expr);
+
+        let mut ctx : ParseContext = expr.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_expr = parser.parse_expression();
+        //println!("Res: {:#?}", ast_expr);
+        if ast_expr.is_err() {
+            println!("Error: {:?}", ast_expr);
+        }
+        assert!(ast_expr.is_ok());
+
+        let ast_expr = ast_expr.unwrap();
+        println!("Res: {:#?}", ast_expr);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
 }
 
