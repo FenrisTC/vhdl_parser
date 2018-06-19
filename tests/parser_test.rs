@@ -36,9 +36,9 @@ fn test_names() {
         }*/
         assert!(ast_name.is_ok());
 
-        let ast_name = ast_name.unwrap();
+        let _ast_name = ast_name.unwrap();
         //println!("{:#?}", ast_name);
-        //println!("{:?}", parser.tok);
+        println!("{:?}", parser.tok);
         //println!("length: {:?}", name.len());
         assert!(parser.tok.kind == TokenKind::EoF);
     }

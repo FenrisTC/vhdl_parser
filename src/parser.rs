@@ -1,3 +1,5 @@
+// Parse Tokens to AST
+// Author: Sebastian Schüller <schueller@ti.uni-bonn.de>
 
 use token::*;
 use token::TokenKind::*;

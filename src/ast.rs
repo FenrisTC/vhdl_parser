@@ -1,3 +1,6 @@
+// AST Definiton
+// Author: Sebastian Schüller <schueller@ti.uni-bonn.de>
+
 use std;
 use token::{Token, TokenKind, TokenKind::*};
 use SrcPos;

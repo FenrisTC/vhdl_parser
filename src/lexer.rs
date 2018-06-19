@@ -1,3 +1,5 @@
+// Lex Tokens from an input source
+// Author: Sebastian Schüller <schueller@ti.uni-bonn.de>
 
 use token::*;
 use token::TokenKind::*;
@@ -345,7 +347,6 @@ impl<'a> ScanInfo<'a> {
             ('?','<', ..) => { self.set_idx(end1); return make_tok(start, end1, QLt)},
             ('?','>', ..) => { self.set_idx(end1); return make_tok(start, end1, QGt)},
             ('?','?', ..) => { self.set_idx(end1); return make_tok(start, end1, QQ)},
-            ('?',     ..) => (),
             _ => (),
         };
 
