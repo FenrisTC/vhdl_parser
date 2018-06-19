@@ -14,7 +14,7 @@ fn simple_test() {
 
         let mut lex_info = ScanInfo::from(&mut parse_ctx);
         let tok = lex_info.scan_token();
-        assert_eq!(tok.kind, TokenKind::Kw(Keyword::Use),
+        assert_eq!(tok.kind, TokenKind::Use,
             "{:?}, {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
 
         let tok = lex_info.scan_token();
@@ -34,7 +34,7 @@ fn simple_test() {
             "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
 
         let tok = lex_info.scan_token();
-        assert_eq!(tok.kind, TokenKind::Kw(Keyword::All),
+        assert_eq!(tok.kind, TokenKind::All,
             "{:?}, : {:?}", tok, String::from(&test_str[tok.pos.as_range()]));
 
         let tok = lex_info.scan_token();

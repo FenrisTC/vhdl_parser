@@ -169,7 +169,7 @@ impl<'a> ScanInfo<'a> {
             let s = &self.ctx.txt[start..end];
 
             if let Some(kind) = Token::match_keyword(s) {
-                return make_tok(start, end, Kw(kind));
+                return make_tok(start, end, kind);
             }
 
             return make_tok(start, end, Ident);

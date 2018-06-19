@@ -1,6 +1,5 @@
 
 use token::*;
-use token::Keyword::*;
 use token::TokenKind::*;
 use lexer::{ScanInfo, ParseContext};
 use SrcPos;
@@ -112,8 +111,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
     fn parse_expr_atom(&mut self) -> PResult<Expr> {
         //println!("Entering parse_expr_atom on tok: {:?}", self.kind());
         self.expected.extend_from_slice(&[
-            Plus, Minus, Kw(And), Kw(Or), Kw(Xor), Kw(Not), Kw(Nand),
-            Kw(Nor), Kw(Xnor)
+            Plus, Minus, And, Or, Xor, Not, Nand,
+            Nor, Xnor
         ]);
         let start = self.pos();
         if let Some(op) = Op::unary_from_token(&self.tok) {
@@ -153,7 +152,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             })));
         }
 
-        if self.tok_is(Kw(Others)) {
+        if self.tok_is(Others) {
             //println!("Parse Others");
             self.advance_tok();
             let range = start.to(&self.pos());
@@ -176,7 +175,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 let mut choices = Vec::<Expr>::default();
                 let mut expr = self.parse_expression()?;
 
-                while self.tok_is_one_of(&[Bar, Kw(To), Kw(Downto)]) {
+                while self.tok_is_one_of(&[Bar, To, Downto]) {
                     if self.tok_is(Bar) {
                         choices.push(expr);
                         self.advance_tok();
@@ -298,7 +297,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             } else if self.tok_is_one_of(&[Ident, CharLiteral, StringLiteral]) {
                 let name = self.parse_name()?;
                 signature.parameter_typenames.push(name);
-            } else if self.tok_is(Kw(Return)) {
+            } else if self.tok_is(Return) {
                 self.advance_tok(); // Eat return
                 if !self.tok_is_one_of(&[Ident, CharLiteral, StringLiteral]) {
                     return self.unexpected_tok();
@@ -408,7 +407,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 Dot      => {
                     self.advance_tok(); // Eat .
 
-                    if self.tok_is(Kw(All)) {
+                    if self.tok_is(All) {
                         name.segments.push(NameSegment {
                             pos: self.pos(),
                             kind: SegmentKind::AllQualifier,

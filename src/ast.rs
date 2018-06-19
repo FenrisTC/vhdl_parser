@@ -1,5 +1,5 @@
 use std;
-use token::{Token, TokenKind, TokenKind::*, Keyword::*};
+use token::{Token, TokenKind, TokenKind::*};
 use SrcPos;
 
 #[derive(Debug, Clone, Default)]
@@ -106,21 +106,21 @@ impl Op {
     pub fn from_token(t: &Token) -> Option<Op> {
         match t.kind {
             StarStar => Some(Op::Exp),
-            Kw(Abs)  => Some(Op::Abs),
-            Kw(Not)  => Some(Op::Not),
+            Abs      => Some(Op::Abs),
+            Not      => Some(Op::Not),
             Star     => Some(Op::Mul),
             Slash    => Some(Op::Div),
-            Kw(Mod)  => Some(Op::Mod),
-            Kw(Rem)  => Some(Op::Rem),
+            Mod      => Some(Op::Mod),
+            Rem      => Some(Op::Rem),
             Plus     => Some(Op::Add),
             Minus    => Some(Op::Sub),
             Amp      => Some(Op::Cat),
-            Kw(Sll)  => Some(Op::Sll),
-            Kw(Sla)  => Some(Op::Srl),
-            Kw(Sra)  => Some(Op::Sla),
-            Kw(Srl)  => Some(Op::Sra),
-            Kw(Rol)  => Some(Op::Rol),
-            Kw(Ror)  => Some(Op::Ror),
+            Sll      => Some(Op::Sll),
+            Sla      => Some(Op::Srl),
+            Sra      => Some(Op::Sla),
+            Srl      => Some(Op::Sra),
+            Rol      => Some(Op::Rol),
+            Ror      => Some(Op::Ror),
             Eq       => Some(Op::Eq),
             SlashEq  => Some(Op::NEq),
             Gt       => Some(Op::Gt),
@@ -133,12 +133,12 @@ impl Op {
             QLEq     => Some(Op::QLEq),
             QGt      => Some(Op::QGt),
             QGEq     => Some(Op::QGEq),
-            Kw(And)  => Some(Op::And),
-            Kw(Or)   => Some(Op::Or),
-            Kw(Xor)  => Some(Op::Nand),
-            Kw(Nand) => Some(Op::Nor),
-            Kw(Nor)  => Some(Op::Xor),
-            Kw(Xnor) => Some(Op::Xnor),
+            And      => Some(Op::And),
+            Or       => Some(Op::Or),
+            Xor      => Some(Op::Nand),
+            Nand     => Some(Op::Nor),
+            Nor      => Some(Op::Xor),
+            Xnor     => Some(Op::Xnor),
             QQ       => Some(Op::QQ),
             _ => None,
         }
@@ -146,15 +146,15 @@ impl Op {
 
     pub fn unary_from_token(t: &Token) -> Option<Op> {
         match t.kind {
-            QQ       => Some(Op::QQ),
-            Plus     => Some(Op::UnPos),
-            Minus    => Some(Op::UnNeg),
-            Kw(And)  => Some(Op::UnAnd),
-            Kw(Or)   => Some(Op::UnOr),
-            Kw(Nand) => Some(Op::UnNand),
-            Kw(Nor)  => Some(Op::UnNor),
-            Kw(Xor)  => Some(Op::UnXnor),
-            Kw(Xnor) => Some(Op::UnXnor),
+            QQ    => Some(Op::QQ),
+            Plus  => Some(Op::UnPos),
+            Minus => Some(Op::UnNeg),
+            And   => Some(Op::UnAnd),
+            Or    => Some(Op::UnOr),
+            Nand  => Some(Op::UnNand),
+            Nor   => Some(Op::UnNor),
+            Xor   => Some(Op::UnXnor),
+            Xnor  => Some(Op::UnXnor),
             _ => None,
         }
 
@@ -213,8 +213,8 @@ pub enum Direction {
 impl From<TokenKind> for Direction {
     fn from(k: TokenKind) -> Direction {
         match k {
-            Kw(To)     => Direction::To,
-            Kw(Downto) => Direction::Downto,
+            To     => Direction::To,
+            Downto => Direction::Downto,
             _ => {
                 panic!("Internal Compiler Error {}, {}: Tried to build a range direction from token other than To or Downto (namely this: {:?})", file!(), line!(), k);
             }
