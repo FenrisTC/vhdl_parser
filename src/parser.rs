@@ -52,6 +52,9 @@ impl<'a> From<&'a mut ParseContext<'a>> for ParseInfo<'a> {
 
 impl<'a> ParseInfo<'a> {
     fn unexpected_tok<T>(&mut self) -> PResult<T> {
+        if self.kind() == EoF {
+            return self.unexpected_eof();
+        }
         let err = ParseError::UnexpectedToken(
             self.tok.clone(),
             self.scan.ctx.string_at_pos(&self.pos()),
@@ -109,7 +112,78 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.tok = tok;
     }
 
-    #[allow(dead_code)]
+    fn parse_expr_aggregate(&mut self) -> PResult<Expr> {
+        // For aggregates we always want to sit on the Paren,
+        // this makes finding the end of the aggregate a lot
+        // easier.
+        debug_assert!(self.kind() == LParen);
+
+        let start = self.pos();
+        self.advance_tok(); // Eat (
+        let mut aggregates =  Vec::<Expr>::default();
+        'aggregate_exprs: loop {
+            //println!("Entering aggregate loop");
+            let mut choices = Vec::<Expr>::default();
+            let mut expr = self.parse_expression()?;
+
+            while self.tok_is_one_of(&[Bar, To, Downto]) {
+                if self.tok_is(Bar) {
+                    choices.push(expr);
+                    self.advance_tok();
+                    expr = self.parse_expression()?;
+                } else {
+                    let dir = Direction::from(self.kind());
+                    self.advance_tok();
+                    let lhs = expr;
+                    let rhs = self.parse_expression()?;
+                    expr = Expr::new(lhs.pos.to(&rhs.pos), ExprKind::Range(
+                        RangeExpr {
+                            lhs: Box::new(lhs),
+                            dir,
+                            rhs: Box::new(rhs),
+                        }
+                    ));
+
+                }
+            }
+
+            if self.tok_is(EqGt) {
+                choices.push(expr);
+
+                self.advance_tok();
+
+                let designator = self.parse_expression()?;
+                expr = Expr::new(start.to(&designator.pos), ExprKind::Assoc(
+                    AssocExpr {
+                        choices,
+                        designator: Box::new(designator),
+                    }
+                ));
+
+            } else if !choices.is_empty() {
+                return self.expr_choices_without_designator();
+            }
+
+            aggregates.push(expr);
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        let pos = start.to(&self.pos());
+        if self.tok_is(RParen) {
+            self.advance_tok(); // Eat )
+        }
+
+        if aggregates.len() == 1 {
+            return Ok(aggregates.pop().unwrap());
+        }
+        let expr = Expr::new(pos, ExprKind::Aggregate(aggregates));
+
+        return Ok(expr);
+    }
+
+    //#allow(dead_code)]
     fn parse_expr_atom(&mut self) -> PResult<Expr> {
         //println!("Entering parse_expr_atom on tok: {:?}", self.kind());
         self.expected.extend_from_slice(&[
@@ -170,68 +244,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
 
         if self.tok_is(LParen) {
-            self.advance_tok(); // Eat (
-            let mut aggregates =  Vec::<Expr>::default();
-            'aggregate_exprs: loop {
-                //println!("Entering aggregate loop");
-                let mut choices = Vec::<Expr>::default();
-                let mut expr = self.parse_expression()?;
-
-                while self.tok_is_one_of(&[Bar, To, Downto]) {
-                    if self.tok_is(Bar) {
-                        choices.push(expr);
-                        self.advance_tok();
-                        expr = self.parse_expression()?;
-                    } else {
-                        let dir = Direction::from(self.kind());
-                        self.advance_tok();
-                        let lhs = expr;
-                        let rhs = self.parse_expression()?;
-                        expr = Expr::new(lhs.pos.to(&rhs.pos), ExprKind::Range(
-                            RangeExpr {
-                                lhs: Box::new(lhs),
-                                dir,
-                                rhs: Box::new(rhs),
-                            }
-                        ));
-
-                    }
-                }
-
-                if self.tok_is(EqGt) {
-                    choices.push(expr);
-
-                    self.advance_tok();
-
-                    let designator = self.parse_expression()?;
-                    expr = Expr::new(start.to(&designator.pos), ExprKind::Assoc(
-                        AssocExpr {
-                            choices,
-                            designator: Box::new(designator),
-                        }
-                    ));
-
-                } else if !choices.is_empty() {
-                    return self.expr_choices_without_designator();
-                }
-
-                aggregates.push(expr);
-
-                if !self.tok_is(Comma) { break; }
-                self.advance_tok();
-            }
-
-            let pos = start.to(&self.pos());
-            if self.tok_is(RParen) {
-                self.advance_tok(); // Eat )
-            }
-
-            if aggregates.len() == 1 {
-                return Ok(aggregates.pop().unwrap());
-            }
-            let expr = Expr::new(pos, ExprKind::Aggregate(aggregates));
-
-            return Ok(expr);
+            return self.parse_expr_aggregate();
         }
 
         return self.unexpected_tok();
@@ -424,10 +437,28 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
                 },
                 LParen   => {
+
+                    // Parse all parenthesised names as aggregate expressions
+                    // which should be a superset of everything that is allowed
+                    // to happen after a name. But maybe not.
+                    // The actual checking if the stuff in the parenthesis is
+                    // correct happens after the name passes typechecking.
+                    //     Sebastian, 19.06.18
+
+                    let attached_expr = self.parse_expr_aggregate()?;
+
+                    name.segments.push( NameSegment {
+                        pos:  attached_expr.pos,
+                        kind: SegmentKind::AttachedExpression(Box::new(attached_expr)),
+                    });
+
+
                     // Until we have a better way of dealing with names with a
                     // parenthesised at the end we can't distinguish without
                     // typechecking, we just collect all tokens to parse at a
                     // later stage.
+
+                    /*
                     self.advance_tok(); // Eat (
 
                     let start_pos = self.pos();
@@ -458,8 +489,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         pos: start_pos.to(&end_pos),
                         kind: SegmentKind::UnparsedBlob(tokens),
                     });
-
                     self.advance_tok();
+                    */
                 },
                 _        => break,
             };

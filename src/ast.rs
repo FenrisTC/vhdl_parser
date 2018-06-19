@@ -322,6 +322,7 @@ pub struct Signature {
 pub enum SegmentKind {
     QualifiedExpr(Box<Expr>),
     UnparsedBlob(Vec<Token>),
+    AttachedExpression(Box<Expr>),
     CharLiteral(char),
     Signature(Box<Signature>),
     Attribute,
