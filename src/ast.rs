@@ -308,6 +308,7 @@ impl Expr {
             kind,
         }
     }
+
 }
 
 
@@ -331,6 +332,15 @@ pub enum SegmentKind {
     Identifier,
 }
 
+impl SegmentKind {
+    pub fn unwrap_qualified_expr(self) -> Box<Expr> {
+        match self {
+            SegmentKind::QualifiedExpr(x) => x,
+            _ => panic!("Unwrapped Wrong SegmentKind!"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NameSegment {
     pub pos: SrcPos,
@@ -344,4 +354,14 @@ pub struct Name {
     pub segments: Vec<NameSegment>,
 }
 
-
+impl Name {
+    pub fn is_qualifiend_expr(&self) -> bool {
+        if self.segments.len() < 2 {
+            return false;
+        }
+        match self.segments.last().map(|ref seg| &seg.kind) {
+            Some(SegmentKind::QualifiedExpr(_)) => true,
+            _ => false,
+        }
+    }
+}

@@ -8,7 +8,6 @@ use SrcPos;
 use {ParseError, PResult};
 use ast::*;
 
-
 #[derive(Debug)]
 pub struct ParseInfo<'a> {
     pub scan: ScanInfo<'a>,
@@ -237,9 +236,27 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         if self.tok_is(Ident) {
             //println!("Parse Ident");
-            let name = self.parse_name()?;
+            let mut name = self.parse_name()?;
+
+            // An Ident might also signify a qualified expression,
+            // so we deconstruct the name to get the expression.
+            if name.is_qualifiend_expr() {
+                let expr_segment = name.segments.pop().unwrap();
+                let expr = expr_segment.kind.unwrap_qualified_expr();
+
+                name.pos = name.pos.to(&name.segments.last().unwrap().pos);
+                let range = start.to(&expr.pos);
+                return Ok(Expr::new(range, ExprKind::Qualified(QualifiedExpr {
+                    qualifier: name,
+                    expr: expr,
+                })));
+
+            }
+
+
             let range = start.to(&name.pos);
             return Ok(Expr::new(range, ExprKind::Name(name)));
+
         }
 
 
