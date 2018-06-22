@@ -259,10 +259,9 @@ pub struct TypeCastExpr {
 
 #[derive(Debug, Clone)]
 pub struct AssocExpr {
-    pub choices: Vec<Expr>,
+    pub choices: Box<Expr>,
     pub designator: Box<Expr>,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
@@ -274,10 +273,14 @@ pub enum ExprKind {
     Range(RangeExpr),
     Assoc(AssocExpr),
     Aggregate(Vec<Expr>),
+    List(Vec<Expr>),
+    Inertial(Box<Expr>),
     NumLit(NumericLit),
     StrLit(StringLit),
     ChrLit(CharLit),
+    SubtypeIndication(SubtypeIndication),
     Other,
+    Open,
 }
 
 impl ExprKind {
@@ -350,7 +353,6 @@ pub struct NameSegment {
 #[derive(Debug, Clone, Default)]
 pub struct Name {
     pub pos: SrcPos,
-    pub id: NodeId,
     pub segments: Vec<NameSegment>,
 }
 
@@ -362,6 +364,87 @@ impl Name {
         match self.segments.last().map(|ref seg| &seg.kind) {
             Some(SegmentKind::QualifiedExpr(_)) => true,
             _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolutionIndication {
+    Function(Box<Name>),
+    ArrayIndication{lvl: u32, resolution: Box<ResolutionIndication>},
+    RecordIndication(Vec<(Box<Name>, Box<ResolutionIndication>)>),
+}
+
+impl ResolutionIndication {
+    pub fn is_function(&self) -> bool {
+        match self {
+            ResolutionIndication::Function(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn try_into_name(self) -> Option<Name> {
+        match self {
+            ResolutionIndication::Function(name) => Some(*name),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SubtypeIndication {
+    pub pos: SrcPos,
+    pub typemark: Name,
+    pub resolution: Option<ResolutionIndication>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Identifier {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EntityDecl {
+    pub pos: SrcPos,
+    pub name: Identifier,
+    //pub generics: Vec<InterfaceDecl>,
+    pub ports: Vec<PortDecl>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PortDecl {
+    pub pos: SrcPos,
+    pub idents: Vec<Identifier>,
+    pub mode: PortMode,
+    pub typemark: SubtypeIndication,
+    pub is_bus: bool,
+    pub default_expr: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PortMode {
+    In,
+    Out,
+    Inout,
+    Buffer,
+    Linkage
+}
+
+impl Default for PortMode {
+    fn default() -> PortMode {
+        PortMode::In
+    }
+}
+
+impl PortMode {
+    pub fn try_from_tokenkind(kind: TokenKind) -> Option<PortMode> {
+        match kind {
+            TokenKind::In =>      Some(PortMode::In),
+            TokenKind::Out =>     Some(PortMode::Out),
+            TokenKind::Inout =>   Some(PortMode::Inout),
+            TokenKind::Buffer =>  Some(PortMode::Buffer),
+            TokenKind::Linkage => Some(PortMode::Linkage),
+            _ => None,
         }
     }
 }

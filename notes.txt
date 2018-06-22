@@ -1,0 +1,232 @@
+
+
+
+
+Subtype indication constraints
+==============================
+
+subtype_indication ::=
+      [resolution_indication] typemark [constraint]
+
+constraint ::=
+      range_constraint
+    | array_constraint
+    | record_constraint
+
+
+
+    range_constraint ::=
+          _range_ range
+
+    range ::=
+          attribute_name
+        | expr to/downto expr
+
+    element_constraint ::=
+          array_constraint
+        | record_constraint
+
+    array_constraint ::=
+          (discrete_range {, discrete_range})[element_constraint]
+        | (open)[element_constraint]
+
+        discrete_range ::=
+              subtype_indication // May not include a resolution indication
+            | range
+
+    record_constraint ::=
+          (simple_name element_constraint {,simple_name element_constraint})
+
+
+constraint ::=
+      _range_ range
+    | (open)[element_constraint]
+    | (discrete_range {, discrete_range }) [element_constraint]
+    | (simple_name element_constraint {, simple_name element_constraint})
+
+element_constraint ::=
+      (open)[element_constraint]
+    | (discrete_range {, discrete_range }) [element_constraint]
+    | (simple_name element_constraint {, simple_name element_constraint})
+
+element_constraint ::=
+      (open)[element_constraint]
+    | (subtype_indication {, discrete_range }) [element_constraint]
+    | (range              {, discrete_range }) [element_constraint]
+    | (simple_name element_constraint {, simple_name element_constraint})
+
+element_constraint ::=
+      (open)[element_constraint]
+    | (typemark [constraint] {, discrete_range}) [element_constraint]
+    | (expr to/downto expr   {, discrete_range}) [element_constraint]
+    | (simple_name element_constraint {, simple_name element_constraint})
+
+
+function_call ::= name [(actual_parameter_part)]
+
+    actual_parameter_part ::= association_list
+    association_list ::= association_element {, association_element}
+    association_element ::= [formal_part =>] actual_part
+        formal_part ::=
+              name
+            | name(name)
+        actual_part ::=
+              name
+            | subtype_indication
+            | [_inertial_] expr
+            | _open_
+            | name(name)
+            | name([_inertial_] expr)
+            | name(subtype_indication)
+            | name(_open_)
+    association_element ::=
+          name
+        | name => name
+        | name
+        | name(name) => name
+        | subtype_indication
+        | name=> subtype_indication
+        | subtype_indication
+        | name(name) => subtype_indication
+        | _open_
+        | name => _open_
+        | [name(name) =>] _open_
+        | expr
+        | _inertial_ expr
+        | name => expr
+        | name => _inertial_ expr
+        | name(name) => expr
+        | name(name) => _inertial_ expr
+        | name(name)
+        | name => name(name)
+        | name(name)
+        | name(name) => name(name)
+        | name(subtype_indication)
+        | name => name(subtype_indication)
+        | name(subtype_indication)
+        | name(name) => name(subtype_indication)
+        | name(_open_)
+        | name => name(_open_)
+        | name(_open_)
+        | name(name) => name(_open_)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name => name(expr)
+        | name => name(_inertial_ expr)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name(name) => name(expr)
+        | name(name) => name(_inertial_ expr)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name => name(expr)
+        | name => name(_inertial_ expr)
+        | name(expr)
+        | name(_inertial_ expr)
+        | name(name) => name(expr)
+        | name(name) => name(_inertial_ expr)
+
+    association_element ::=
+        | _inertial_ expr
+        | _open_
+        | expr
+        | name
+        | subtype_indication
+
+        | name(_inertial_ expr)
+        | name(_open_)
+        | name(expr)
+        | name(name)
+        | name(subtype_indication)
+
+        | name => _inertial_ expr
+        | name => _open_
+        | name => expr
+        | name => name
+        | name => subtype_indication
+
+        | name => name(_inertial_ expr)
+        | name => name(_open_)
+        | name => name(expr)
+        | name => name(name)
+        | name => name(subtype_indication)
+
+        | name(name) => _inertial_ expr
+        | name(name) => _open_
+        | name(name) => expr
+        | name(name) => name
+        | name(name) => subtype_indication
+
+        | name(name) => name(_inertial_ expr)
+        | name(name) => name(_open_)
+        | name(name) => name(expr)
+        | name(name) => name(name)
+        | name(name) => name(subtype_indication)
+
+
+aggregate ::=
+    (element_association {, element_association})
+
+    element_association ::=
+        [choices =>] expr
+
+    choices ::=
+          simple_expr
+        | discrete_range
+        | simple_name
+
+
+function_call      ::=   name [   (association_element            {, association_element})]
+type_conversion    ::=   typemark (expr)
+indexed_name       ::=   prefix   (expr                           {, expr })
+slice_name         ::=   prefix   (discrete_range)
+subtype_indication ::= … typemark (_open_)                                            [element_constraint]
+                     | … typemark (subtype_indication             {, discrete_range}) [element_constraint]
+                     | … typemark (expr to/downto expr            {, discrete_range}) [element_constraint]
+                     | … typemark (simple_name element_constraint {, simple_name element_constraint})
+
+
+
+name_w_paren  ::= name [ superset_expr ]
+superset_expr ::=
+      (open)                                                              // Function param list
+    | (_inertial_ expr)                                                   //
+    | (expr)                                                              //
+    | (association_element            {, association_element}           ) // Function param list
+    | (element_association            {, element_association}           ) // Aggregate expr
+    | (discrete_range                 {, discrete_range}                ) // Array constraint
+    | (simple_name element_constraint {, simple_name element_constraint}) // Record constraint
+
+
+  [discrete_range   => ] expr
+  [simple_expr      => ] expr
+  [name             => ] open
+  [name             => ] [inertial] expr
+  [name             => ] subtype_indication
+  [name             => ] name
+  [choice {|choice} => ] ...
+
+
+superset_list_el ::=
+      expr
+    | discrete_range
+    | open
+    | inertial expr
+    | subtype_indication
+
+superset_list_el ::=
+      [inertial] expr
+    | expr name
+    | expr to/downto expr
+    | open
+
+subtype_indication ::=
+      name  name [constraint]
+    | (res) name [constraint]
+    | name [constraint]

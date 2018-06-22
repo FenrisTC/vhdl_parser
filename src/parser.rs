@@ -74,11 +74,13 @@ impl<'a> ParseInfo<'a> {
         Err(err)
     }
 
+    /*
     fn expr_choices_without_designator<T>(&mut self) -> PResult<T> {
         let err = ParseError::ExprChoicesWithoutDesignator;
         self.errors.push(err.clone());
         Err(err)
     }
+    */
 
 }
 
@@ -111,73 +113,133 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.tok = tok;
     }
 
-    fn parse_expr_aggregate(&mut self) -> PResult<Expr> {
-        // For aggregates we always want to sit on the Paren,
-        // this makes finding the end of the aggregate a lot
-        // easier.
+    fn eat_expect(&mut self, kind: TokenKind) -> PResult<()> {
+        if !self.tok_is(kind) {
+            return self.unexpected_tok();
+        }
+        self.advance_tok();
+        Ok(())
+    }
+
+    // The expression superset is a thing to deal with
+    // the many many elements the parensthised construct
+    // following a name can be a part of.
+    // Most of those elements are only discernable by
+    // knowing the type of the preluding name.
+    // The expression superset is later reduced to one
+    // of the following syntax elements:
+    //  element_constraint       <-- For subtype_indications
+    //  (actual_parameter_part)  <-- For function_call
+    //  aggregate
+    //  (disrcete_range)         <-- For slice_name
+    //  (expr {,expr})           <-- For indexed_name
+    //  (expr)                   <-- For type_conversions
+    //
+    fn parse_expr_superset(&mut self) -> PResult<Expr> {
         debug_assert!(self.kind() == LParen);
 
         let start = self.pos();
-        self.advance_tok(); // Eat (
-        let mut aggregates =  Vec::<Expr>::default();
-        'aggregate_exprs: loop {
-            //println!("Entering aggregate loop");
-            let mut choices = Vec::<Expr>::default();
-            let mut expr = self.parse_expression()?;
 
-            while self.tok_is_one_of(&[Bar, To, Downto]) {
-                if self.tok_is(Bar) {
-                    choices.push(expr);
-                    self.advance_tok();
-                    expr = self.parse_expression()?;
-                } else {
-                    let dir = Direction::from(self.kind());
-                    self.advance_tok();
-                    let lhs = expr;
-                    let rhs = self.parse_expression()?;
-                    expr = Expr::new(lhs.pos.to(&rhs.pos), ExprKind::Range(
-                        RangeExpr {
-                            lhs: Box::new(lhs),
-                            dir,
-                            rhs: Box::new(rhs),
-                        }
-                    ));
+        let mut exprs = Vec::<Expr>::default();
 
-                }
-            }
+        self.eat_expect(LParen)?;
+        loop {
+            let mut expr = self.parse_expr_superset_element()?;
 
             if self.tok_is(EqGt) {
-                choices.push(expr);
-
+                // Check if expr is valid as the lhs of the
+                // association and parse the rhs.
+                if matches!(expr.kind, ExprKind::Open) ||
+                    matches!(expr.kind, ExprKind::Inertial(_)) {
+                    // Incomplete: Emit corresponding error
+                }
                 self.advance_tok();
-
-                let designator = self.parse_expression()?;
-                expr = Expr::new(start.to(&designator.pos), ExprKind::Assoc(
-                    AssocExpr {
-                        choices,
-                        designator: Box::new(designator),
-                    }
-                ));
-
-            } else if !choices.is_empty() {
-                return self.expr_choices_without_designator();
+                let rhs = self.parse_expression()?;
+                expr = Expr::new(expr.pos.to(&rhs.pos), ExprKind::Assoc(AssocExpr{
+                    choices: Box::new(expr),
+                    designator: Box::new(rhs),
+                }));
             }
-
-            aggregates.push(expr);
+            exprs.push(expr);
 
             if !self.tok_is(Comma) { break; }
+            self.eat_expect(Comma)?;
+        }
+        let end = self.pos();
+        self.eat_expect(RParen)?;
+        debug_assert!(!exprs.is_empty());
+        if exprs.len() > 1 {
+            return Ok(Expr::new(start.to(&end), ExprKind::List(exprs)));
+        } else {
+            return Ok(exprs.pop().unwrap());
+        }
+    }
+
+
+    fn parse_expr_superset_element(&mut self) -> PResult<Expr> {
+        let start = self.pos();
+        if self.tok_is(Open) {
+            let end = self.pos();
             self.advance_tok();
+            return Ok(Expr::new(start.to(&end), ExprKind::Open));
+
+        } else if self.tok_is(Inertial) {
+            let local_start = self.pos();
+            self.advance_tok();
+
+            let expr = self.parse_expression()?;
+            let ret = Expr::new(local_start.to(&expr.pos), ExprKind::Inertial(
+                Box::new(expr)
+            ));
+            return Ok(ret);
         }
 
-        let pos = start.to(&self.pos());
-        if self.tok_is(RParen) {
-            self.advance_tok(); // Eat )
-        }
+        let mut expr = self.parse_expression()?;
 
-        if aggregates.len() == 1 {
-            return Ok(aggregates.pop().unwrap());
+        if self.tok_is_one_of(&[To, Downto, Bar]) {
+            let mut choices = Vec::<Expr>::default();
+            while self.tok_is_one_of(&[To, Downto, Bar]) {
+                if self.tok_is_one_of(&[To, Downto]) {
+                    let dir = Direction::from(self.kind());
+                    self.advance_tok();
+                    let rhs = self.parse_expression()?;
+                    expr = Expr::new(expr.pos.to(&rhs.pos), ExprKind::Range(RangeExpr {
+                        lhs: Box::new(expr),
+                        dir,
+                        rhs: Box::new(rhs),
+                    }));
+                } else {
+                    self.eat_expect(Bar)?;
+                    choices.push(expr);
+                    expr = self.parse_expression()?;
+                }
+            }
+            let last = expr.pos;
+            choices.push(expr);
+            debug_assert!(choices.len() >= 1);
+
+            if choices.len() > 1 {
+                return Ok(Expr::new(start.to(&last), ExprKind::List(choices)));
+            } else {
+                return Ok(choices.pop().unwrap());
+            }
+
+        } else if self.tok_can_start_name() {
+            // This should be a subtype indication.
+            // The first expr is allowed to be either a name or
+            // parenthesised resolution indication.
+            let name = self.parse_name()?;
+
+            // TODO, Broken: Passing None to resolution indication for the
+            // subtype indication is wrong, but it is a bit of a pain in the
+            // ass to try converting an expression to a resolution indication.
+            // We'll have to deal with this soon. - 19.06.18
+            return Ok(Expr::new(start.to(&name.pos), ExprKind::SubtypeIndication(SubtypeIndication{
+                pos: start.to(&name.pos),
+                typemark: name,
+                resolution: None,
+            })));
         }
-        let expr = Expr::new(pos, ExprKind::Aggregate(aggregates));
 
         return Ok(expr);
     }
@@ -261,7 +323,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
 
         if self.tok_is(LParen) {
-            return self.parse_expr_aggregate();
+            return self.parse_expr_superset();
         }
 
         return self.unexpected_tok();
@@ -382,6 +444,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(segment)
     }
 
+    fn tok_can_start_name(&mut self) -> bool {
+        self.tok_is_one_of(&[LtLt, Ident, CharLiteral, StringLiteral])
+    }
+
     pub fn parse_name(&mut self) -> PResult<Name> {
         if self.tok_is(LtLt) {
             return self.parse_external_name();
@@ -462,7 +528,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     // correct happens after the name passes typechecking.
                     //     Sebastian, 19.06.18
 
-                    let attached_expr = self.parse_expr_aggregate()?;
+                    let attached_expr = self.parse_expr_superset()?;
 
                     name.segments.push( NameSegment {
                         pos:  attached_expr.pos,
@@ -517,4 +583,124 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         Ok(name)
     }
+
+    pub fn parse_resolution_indication(&mut self) -> PResult<ResolutionIndication> {
+        unimplemented!();
+    }
+
+    pub fn parse_subtype_indication(&mut self) -> PResult<SubtypeIndication> {
+        let mut subtype = SubtypeIndication::default();
+        let resolution = self.parse_resolution_indication()?;
+
+        if self.tok_can_start_name() {
+            subtype.typemark   = self.parse_name()?;
+            subtype.resolution = Some(resolution);
+        } else {
+            if !resolution.is_function() {
+            }
+            subtype.typemark = resolution.try_into_name().unwrap();
+            subtype.resolution = None;
+        }
+
+
+        unimplemented!();
+    }
+
+    pub fn parse_entity_decl(&mut self) -> PResult<EntityDecl> {
+        debug_assert!(self.kind() == Entity);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) {
+            return self.unexpected_tok();
+        }
+
+        let mut entity = EntityDecl::default();
+        entity.name = Identifier{ pos: self.pos() };
+
+        self.advance_tok();
+
+        self.eat_expect(Is)?;
+
+        if self.tok_is(Generic) {
+            self.advance_tok();
+            self.eat_expect(LParen)?;
+            //entity.generics = self.parse_interface_list()?;
+            self.eat_expect(RParen)?;
+            self.eat_expect(Semicolon)?;
+        }
+
+        if self.tok_is(Port) {
+            self.advance_tok();
+            self.eat_expect(LParen)?;
+            loop {
+                let port_start = self.pos();
+                let mut port = PortDecl::default();
+                if self.tok_is(Signal) {
+                    self.advance_tok();
+                }
+
+                loop {
+                    if !self.tok_is(Ident) {
+                        return self.unexpected_tok();
+                    }
+                    port.idents.push(Identifier { pos: self.pos() });
+
+                    if !self.tok_is(Comma) { break; }
+                }
+
+                self.eat_expect(Colon)?;
+
+                if let Some(mode) = PortMode::try_from_tokenkind(self.kind()) {
+                    port.mode = mode;
+                }
+
+                port.typemark = self.parse_subtype_indication()?;
+
+                if self.tok_is(Bus) {
+                    port.is_bus = true;
+                }
+
+                if self.tok_is(ColonEq) {
+                    self.advance_tok();
+                    let expr = self.parse_expression()?;
+                    port.default_expr = Some(Box::new(expr));
+                }
+
+                port.pos = port_start.to(&self.pos());
+                if !self.tok_is(Semicolon) { break; }
+            }
+            self.eat_expect(RParen)?;
+            self.eat_expect(Semicolon)?;
+        }
+
+        // Incomplete: The declerative part needs to be parsed as well.
+        // (PSL statements are missing from this list)
+        //     Sebastian 19.06.18
+        while self.tok_is_one_of(&[Function, Procedure, Package, Type, Subtype, Constant, Signal, Shared, File, Alias, Attribute, Disconnect, Use, Group]) {
+            while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
+            debug_assert!(self.kind() == Semicolon);
+            self.advance_tok();
+        }
+
+        if self.tok_is(Begin) {
+            while !self.tok_is_one_of(&[End, EoF]) { self.advance_tok(); }
+        }
+
+        self.eat_expect(End)?;
+
+        if self.tok_is(Ident) {
+            self.advance_tok();
+        }
+
+        if !self.tok_is(Semicolon) {
+            return self.unexpected_tok();
+        }
+
+        entity.pos = start.to(&self.pos());
+        self.advance_tok();
+
+        Ok(entity)
+    }
 }
+

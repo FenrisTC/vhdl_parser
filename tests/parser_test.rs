@@ -44,6 +44,9 @@ fn test_names() {
     }
 }
 
+//"vector_arr((others => '0'), (31 downto 0 => '1'), x\"x\")",
+// Bug: There seems to be something wrong with the lexer 'x"x"' should be parsed
+// as one string literal token but it seems to become two seperate ones.
 #[test]
 fn test_exprs() {
     let exprs = [
@@ -55,7 +58,8 @@ fn test_exprs() {
         "(a = 5 or (??b))",
         "rising_edge(clk) and o_vld = '1'",
         "(127 downto 96 => '1', others => '0')",
-        "info.length + (4 - info.length(1 downto 0))"
+        "info.length + (4 - info.length(1 downto 0))",
+        "vector_arr((others => '0'), (31 downto 0 => '1'), \"x\")",
     ];
 
     for &expr in exprs.iter() {
