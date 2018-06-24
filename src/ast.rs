@@ -366,6 +366,15 @@ impl Name {
             _ => false,
         }
     }
+
+    pub fn is_simple(&self) -> bool {
+        return self.segments.len() == 1 &&
+            match self.segments.first().map(|ref seg| &seg.kind) {
+                Some(SegmentKind::Identifier) => true,
+                _ => false,
+        }
+    }
+
 }
 
 #[derive(Debug, Clone)]

@@ -1,20 +1,9 @@
 //#[macro_use]
 //extern crate bitflags;
 
-macro_rules! _matches_tt_as_expr_hack {
-    ($value:expr) => ($value)
-}
+#[macro_use]
+extern crate matches;
 
-macro_rules! matches {
-    ($expression:expr, $($pattern:tt)+) => {
-        _matches_tt_as_expr_hack! {
-            match $expression {
-                $($pattern)+ => true,
-                _ => false
-            }
-        }
-    }
-}
 
 pub mod token;
 pub mod lexer;
@@ -47,6 +36,7 @@ impl SrcPos {
 pub enum ParseError {
     ExprChoicesWithoutDesignator,
     InvalidOpSymbolString,
+    MalformedExpr,
     UnexpectedToken(token::Token, String),
     UnexpectedEoF,
     Internal,

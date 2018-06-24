@@ -3,5 +3,9 @@ name = "vhdl_parser"
 version = "0.1.0"
 authors = ["Sebastian Schüller <schueller.se@gmail.comB>"]
 
+[profile.debug]
+debug = true
+
 [dependencies]
 bitflags = "1.0"
+matches  = "0.1.6"

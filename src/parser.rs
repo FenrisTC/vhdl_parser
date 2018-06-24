@@ -74,6 +74,11 @@ impl<'a> ParseInfo<'a> {
         Err(err)
     }
 
+    fn malformed_expr_err<T>(&mut self) -> PResult<T> {
+        let err = ParseError::MalformedExpr;
+        self.errors.push(err.clone());
+        Err(err)
+    }
     /*
     fn expr_choices_without_designator<T>(&mut self) -> PResult<T> {
         let err = ParseError::ExprChoicesWithoutDesignator;
@@ -228,6 +233,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
             // This should be a subtype indication.
             // The first expr is allowed to be either a name or
             // parenthesised resolution indication.
+            if let ExprKind::Name(name) = &expr.kind {
+                if !name.is_simple() {
+                    return self.malformed_expr_err();
+                }
+
+            }
+
+
             let name = self.parse_name()?;
 
             // TODO, Broken: Passing None to resolution indication for the
