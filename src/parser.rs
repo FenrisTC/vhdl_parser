@@ -154,10 +154,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
             if self.tok_is(EqGt) {
                 // Check if expr is valid as the lhs of the
                 // association and parse the rhs.
-                if matches!(expr.kind, ExprKind::Open) ||
-                    matches!(expr.kind, ExprKind::Inertial(_)) {
-                    // Incomplete: Emit corresponding error
+                if expr.is_valid_choices() || expr.is_valid_formal_part() {
+                    return self.malformed_expr_err();
                 }
+
                 self.advance_tok();
                 let rhs = self.parse_expression()?;
                 expr = Expr::new(expr.pos.to(&rhs.pos), ExprKind::Assoc(AssocExpr{
@@ -199,35 +199,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return Ok(ret);
         }
 
-        let mut expr = self.parse_expression()?;
+        let expr = self.parse_expression()?;
 
         if self.tok_is_one_of(&[To, Downto, Bar]) {
-            let mut choices = Vec::<Expr>::default();
-            while self.tok_is_one_of(&[To, Downto, Bar]) {
-                if self.tok_is_one_of(&[To, Downto]) {
-                    let dir = Direction::from(self.kind());
-                    self.advance_tok();
-                    let rhs = self.parse_expression()?;
-                    expr = Expr::new(expr.pos.to(&rhs.pos), ExprKind::Range(RangeExpr {
-                        lhs: Box::new(expr),
-                        dir,
-                        rhs: Box::new(rhs),
-                    }));
-                } else {
-                    self.eat_expect(Bar)?;
-                    choices.push(expr);
-                    expr = self.parse_expression()?;
-                }
-            }
-            let last = expr.pos;
-            choices.push(expr);
-            debug_assert!(choices.len() >= 1);
-
-            if choices.len() > 1 {
-                return Ok(Expr::new(start.to(&last), ExprKind::List(choices)));
-            } else {
-                return Ok(choices.pop().unwrap());
-            }
+            return self.parse_choices_cont(expr);
 
         } else if self.tok_can_start_name() {
             // This should be a subtype indication.
@@ -255,6 +230,78 @@ impl<'srcfile> ParseInfo<'srcfile> {
         }
 
         return Ok(expr);
+    }
+
+    fn parse_choices_cont(&mut self, start_expr: Expr) -> PResult<Expr> {
+        let start = start_expr.pos;
+        let mut expr = start_expr;
+        let mut choices = Vec::<Expr>::default();
+        while self.tok_is_one_of(&[To, Downto, Bar]) {
+            if self.tok_is_one_of(&[To, Downto]) {
+                let dir = Direction::from(self.kind());
+                self.advance_tok();
+                let rhs = self.parse_expression()?;
+                expr = Expr::new(expr.pos.to(&rhs.pos), ExprKind::Range(RangeExpr {
+                    lhs: Box::new(expr),
+                    dir,
+                    rhs: Box::new(rhs),
+                }));
+            } else {
+                self.eat_expect(Bar)?;
+                choices.push(expr);
+                expr = self.parse_expression()?;
+            }
+        }
+        let last = expr.pos;
+        choices.push(expr);
+        debug_assert!(choices.len() >= 1);
+
+        return if choices.len() > 1 {
+            Ok(Expr::new(start.to(&last), ExprKind::List(choices)))
+        } else {
+            Ok(choices.pop().unwrap())
+        }
+    }
+
+    fn parse_aggregate(&mut self) -> PResult<Expr> {
+        debug_assert!(self.kind() == LParen);
+        let start = self.pos();
+        self.advance_tok();
+
+        let mut exprs = Vec::<Expr>::default();
+
+        loop {
+            let mut lhs = self.parse_expression()?;
+            if self.tok_is_one_of(&[To, Downto, Bar]) {
+                 lhs = self.parse_choices_cont(lhs)?;
+            }
+
+            if self.tok_is(EqGt) {
+                if !lhs.is_valid_choices() {
+                    return self.malformed_expr_err();
+                }
+
+                self.advance_tok();
+                let rhs = self.parse_expression()?;
+
+                let assoc = Expr::new(lhs.pos.to(&rhs.pos), ExprKind::Assoc(
+                    AssocExpr {
+                        choices: Box::new(lhs),
+                        designator: Box::new(rhs),
+                    }
+                ));
+                exprs.push(assoc);
+
+            }
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        self.eat_expect(RParen)?;
+
+        Ok(Expr::new(start.to(&self.pos()), ExprKind::Aggregate(exprs)))
+
     }
 
     //#allow(dead_code)]
@@ -309,7 +356,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return Ok(Expr::new(range, ExprKind::Other));
         }
 
-        if self.tok_is(Ident) {
+        if self.tok_can_start_name() {
             //println!("Parse Ident");
             let mut name = self.parse_name()?;
 
@@ -336,7 +383,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
 
         if self.tok_is(LParen) {
-            return self.parse_expr_superset();
+            return self.parse_aggregate();
         }
 
         return self.unexpected_tok();
@@ -751,4 +798,3 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(entity)
     }
 }
-

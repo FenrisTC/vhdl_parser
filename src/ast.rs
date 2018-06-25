@@ -312,6 +312,29 @@ impl Expr {
         }
     }
 
+    pub fn is_valid_choices(&self) -> bool {
+        match self.kind {
+            ExprKind::List(ref vec) => {
+                vec.iter().map(|e| match e.kind {
+                    ExprKind::Name(_) => true,
+                    ExprKind::Range(_) => true,
+                    _ => false,
+                }).fold(true, |acc, x| acc && x)
+            },
+            ExprKind::Range(_) => true,
+            ExprKind::Other    => true,
+            _ => false,
+        }
+    }
+
+
+    pub fn is_valid_formal_part(&self) -> bool {
+        match self.kind {
+            ExprKind::Name(_) => true,
+            _ => false,
+        }
+    }
+
 }
 
 

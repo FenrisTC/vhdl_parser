@@ -19,7 +19,8 @@ fn test_names() {
     ];
 
     for &name in names.iter() {
-        //println!("Testing String: {}", name);
+        println!();
+        println!("Testing Name: {}", name);
         let mut ctx    : ParseContext = name.into();
         let mut parser : ParseInfo = (&mut ctx).into();
         let ast_name = parser.parse_name();
