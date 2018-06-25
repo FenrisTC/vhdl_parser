@@ -225,6 +225,7 @@ superset_list_el ::=
     | expr name
     | expr to/downto expr
     | open
+    | subtype_indication
 
 subtype_indication ::=
       name  name [constraint]

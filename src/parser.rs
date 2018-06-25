@@ -203,8 +203,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         if self.tok_is_one_of(&[To, Downto, Bar]) {
             return self.parse_choices_cont(expr);
+        }
 
-        } else if self.tok_can_start_name() {
+        if self.tok_can_start_name() {
             // This should be a subtype indication.
             // The first expr is allowed to be either a name or
             // parenthesised resolution indication.
@@ -233,7 +234,6 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     fn parse_choices_cont(&mut self, start_expr: Expr) -> PResult<Expr> {
-        let start = start_expr.pos;
         let mut expr = start_expr;
         let mut choices = Vec::<Expr>::default();
         while self.tok_is_one_of(&[To, Downto, Bar]) {
@@ -252,15 +252,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 expr = self.parse_expression()?;
             }
         }
-        let last = expr.pos;
         choices.push(expr);
         debug_assert!(choices.len() >= 1);
 
-        return if choices.len() > 1 {
-            Ok(Expr::new(start.to(&last), ExprKind::List(choices)))
-        } else {
-            Ok(choices.pop().unwrap())
-        }
+        Ok(choices.into())
     }
 
     fn parse_aggregate(&mut self) -> PResult<Expr> {
@@ -291,7 +286,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     }
                 ));
                 exprs.push(assoc);
-
+            } else {
+                exprs.push(lhs);
             }
 
             if !self.tok_is(Comma) { break; }
@@ -300,8 +296,13 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         self.eat_expect(RParen)?;
 
-        Ok(Expr::new(start.to(&self.pos()), ExprKind::Aggregate(exprs)))
+        let inner: Expr = exprs.into();
+        let outer = Expr::new(start.to(&self.pos()), ExprKind::Paren {
+            lvl: 1 + inner.nesting_lvl(),
+            expr: Box::new(inner),
+        });
 
+        Ok(outer)
     }
 
     //#allow(dead_code)]
@@ -383,7 +384,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
 
         if self.tok_is(LParen) {
-            return self.parse_aggregate();
+            let expr =  self.parse_aggregate()?;
+            let lvl = 1 + expr.nesting_lvl();
+            return Ok(Expr::new(expr.pos, ExprKind::Paren{ lvl, expr: Box::new(expr) }));
         }
 
         return self.unexpected_tok();

@@ -1,9 +1,3 @@
-//#[macro_use]
-//extern crate bitflags;
-
-#[macro_use]
-extern crate matches;
-
 
 pub mod token;
 pub mod lexer;

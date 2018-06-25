@@ -265,6 +265,7 @@ pub struct AssocExpr {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
+    Paren{ lvl: u32, expr: Box<Expr> },
     BinOp(BinOpExpr),
     UnOp(UnOpExpr),
     Qualified(QualifiedExpr),
@@ -272,7 +273,6 @@ pub enum ExprKind {
     Name(Name),
     Range(RangeExpr),
     Assoc(AssocExpr),
-    Aggregate(Vec<Expr>),
     List(Vec<Expr>),
     Inertial(Box<Expr>),
     NumLit(NumericLit),
@@ -304,6 +304,19 @@ pub struct Expr {
     pub kind: ExprKind,
 }
 
+impl From<Vec<Expr>> for Expr {
+    fn from(mut val: Vec<Expr>) -> Expr {
+        assert!(val.len() >= 1);
+        if val.len() == 1 {
+            return val.pop().unwrap();
+        }
+        return Expr::new(
+            val.first().unwrap().pos.to(&val.last().unwrap().pos),
+            ExprKind::List(val)
+        );
+    }
+}
+
 impl Expr {
     pub fn new(pos: SrcPos, kind: ExprKind) -> Expr {
         Expr {
@@ -327,14 +340,29 @@ impl Expr {
         }
     }
 
+    pub fn without_parens(&self) -> &Expr {
+        let mut paren_expr = self;
+        loop {
+            match paren_expr.kind {
+                ExprKind::Paren{lvl: _, ref expr} => paren_expr = expr,
+                _ => return paren_expr,
+            }
+        }
+    }
 
     pub fn is_valid_formal_part(&self) -> bool {
-        match self.kind {
+        match self.without_parens().kind {
             ExprKind::Name(_) => true,
             _ => false,
         }
     }
 
+    pub fn nesting_lvl(&self) -> u32 {
+        match self.without_parens().kind {
+            ExprKind::Paren{lvl, ..} => lvl,
+            _ => 0,
+        }
+    }
 }
 
 
