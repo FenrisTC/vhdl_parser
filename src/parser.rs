@@ -487,6 +487,41 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         kind: SegmentKind::Signature(Box::new(signature)),
                     });
 
+
+                    // attribute_name ::= prefix [signature] ' simple_name [ (expr) ]
+                    //                    ~~~~~~~~~~~~~~~~~~~^
+                    // alias_declaration ::= … is name [signature];
+                    //                       ~~~~~~~~~~~~~~~~~~~~~^
+                    if ! self.tok_is(Tick) {
+                        break;
+                    };
+                    self.advance_tok();
+
+                    if !self.tok_is(Ident) {
+                        return self.unexpected_tok();
+                    }
+
+                    name.segments.push(NameSegment {
+                        pos: self.pos(),
+                        kind: SegmentKind::Identifier,
+                    });
+
+                    self.advance_tok();
+
+                    if self.tok_is(LParen) {
+                        let local_start = self.pos();
+                        self.advance_tok();
+                        let expr = self.parse_expression()?;
+                        self.eat_expect(RParen)?;
+                        name.segments.push(NameSegment {
+                            pos: local_start.to(&self.pos()),
+                            kind: SegmentKind::AttachedExpression(Box::new(expr)),
+                        });
+                    }
+
+
+
+
                 },
                 Tick     => {
                     self.advance_tok(); // Eat '
