@@ -507,11 +507,20 @@ impl ResolutionIndication {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Constraint {
+    Range {pos: SrcPos, expr: Box<Expr>},
+    Array {pos: SrcPos, expr: Box<Expr>, next: Option<Box<Constraint>>},
+}
+
+
+
 #[derive(Debug, Clone, Default)]
 pub struct SubtypeIndication {
     pub pos: SrcPos,
     pub typemark: Name,
     pub resolution: Option<ResolutionIndication>,
+    pub constraint: Option<Box<Constraint>>,
 }
 
 #[derive(Debug, Clone, Default)]

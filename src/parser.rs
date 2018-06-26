@@ -815,6 +815,26 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(resolution)
     }
 
+
+    fn parse_element_constraint(&mut self) -> PResult<Constraint> {
+        self.eat_expect(LParen)?;
+
+        self.eat_expect(RParen)?;
+        unimplemented!();
+    }
+
+    fn parse_constraint(&mut self) -> PResult<Constraint> {
+        if self.tok_is(Range) {
+            let start = self.pos();
+            self.advance_tok();
+            let expr = self.parse_range()?;
+            let pos  = start.to(&expr.pos);
+            return Ok(Constraint::Range{pos, expr});
+        }
+
+        return self.parse_element_constraint();
+    }
+
     pub fn parse_subtype_indication(&mut self) -> PResult<SubtypeIndication> {
         let mut subtype = SubtypeIndication::default();
         let resolution = self.parse_resolution_indication()?;
@@ -829,6 +849,11 @@ impl<'srcfile> ParseInfo<'srcfile> {
             } else {
                 return self.unexpected_tok();
             }
+        }
+
+        if self.tok_is_one_of(&[Range, LParen]) {
+            let constraint = self.parse_constraint()?;
+            subtype.constraint = Box::new(constraint);
         }
 
         Ok(subtype)
