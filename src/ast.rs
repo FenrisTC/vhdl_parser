@@ -465,8 +465,15 @@ impl Name {
 #[derive(Debug, Clone)]
 pub enum ResolutionIndication {
     Function(Box<Name>),
-    ArrayIndication{lvl: u32, resolution: Box<ResolutionIndication>},
-    RecordIndication(Vec<(Box<Name>, Box<ResolutionIndication>)>),
+    ArrayIndication{
+        pos: SrcPos,
+        lvl: u32,
+        resolution: Box<ResolutionIndication>
+    },
+    RecordIndication{
+        pos: SrcPos,
+        resolutions: Vec<(Name, ResolutionIndication)>
+    },
 }
 
 impl ResolutionIndication {
@@ -474,6 +481,21 @@ impl ResolutionIndication {
         match self {
             ResolutionIndication::Function(_) => true,
             _ => false,
+        }
+    }
+
+    pub fn pos(&self) -> SrcPos {
+        match self {
+            ResolutionIndication::Function(name) => name.pos.clone(),
+            ResolutionIndication::ArrayIndication {pos, ..} => pos.clone(),
+            ResolutionIndication::RecordIndication {pos, ..} => pos.clone(),
+        }
+    }
+
+    pub fn lvl(&self) -> u32 {
+        match self {
+            ResolutionIndication::ArrayIndication{lvl, ..}  => lvl.clone(),
+            _ => 0,
         }
     }
 

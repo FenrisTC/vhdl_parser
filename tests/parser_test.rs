@@ -84,3 +84,33 @@ fn test_exprs() {
     }
 }
 
+#[test]
+fn test_subtype_indications() {
+    let tests = [
+        "std_logic_vector",
+        "std_logic_vector(0 to 31)",
+        "std_logic_vector(data_bits - 1 downto 0)",
+        "natural range 0 to natural'high",
+        "array range indices'range",
+        "resolved std_ulogic",
+        "resolved std_ulogic_vector(5 downto 0)",
+        "(resolved) std_ulogic_vector",
+        "(vld ored, req anded, data xored) struct_type",
+    ];
+
+
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_subtype_indication();
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+}

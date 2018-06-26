@@ -761,25 +761,77 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     pub fn parse_resolution_indication(&mut self) -> PResult<ResolutionIndication> {
-        unimplemented!();
+        if self.tok_is(Ident) {
+            let name = self.parse_selected_name()?;
+            let resolution = ResolutionIndication::Function(
+                Box::new(name)
+            );
+            return Ok(resolution);
+        }
+
+        let start = self.pos();
+        self.eat_expect(LParen)?;
+
+        let mut array_resolution = None;
+        let mut resolutions = Vec::<(Name, ResolutionIndication)>::default();
+        loop {
+            let mut resolution = self.parse_resolution_indication()?;
+
+            if self.tok_is(RParen) {
+                // This is a array resolution
+                resolution = ResolutionIndication::ArrayIndication {
+                    pos: start.to(&self.pos()),
+                    lvl: 1 + resolution.lvl(),
+                    resolution: Box::new(resolution),
+                };
+                array_resolution = Some(resolution);
+                break;
+            }
+
+            if self.tok_is_one_of(&[LParen, Ident]) {
+                if let Some(name) = resolution.try_into_name() {
+                    let resolution = self.parse_resolution_indication()?;
+                    resolutions.push((name, resolution));
+                } else {
+                    return self.unexpected_tok();
+                }
+            }
+
+            if !self.tok_is(Comma) { break; }
+        }
+
+        let end = self.pos();
+        self.eat_expect(RParen)?;
+
+        let resolution = if let Some(resolution) = array_resolution {
+            resolution
+        } else {
+            ResolutionIndication::RecordIndication {
+                pos: start.to(&end),
+                resolutions,
+            }
+        };
+
+        Ok(resolution)
     }
 
     pub fn parse_subtype_indication(&mut self) -> PResult<SubtypeIndication> {
         let mut subtype = SubtypeIndication::default();
         let resolution = self.parse_resolution_indication()?;
 
-        if self.tok_can_start_name() {
-            subtype.typemark   = self.parse_name()?;
+        if self.tok_is(Ident) {
+            subtype.typemark   = self.parse_selected_name()?;
             subtype.resolution = Some(resolution);
         } else {
-            if !resolution.is_function() {
+            if let Some(name) = resolution.try_into_name() {
+                subtype.typemark = name;
+                subtype.resolution = None;
+            } else {
+                return self.unexpected_tok();
             }
-            subtype.typemark = resolution.try_into_name().unwrap();
-            subtype.resolution = None;
         }
 
-
-        unimplemented!();
+        Ok(subtype)
     }
 
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDecl> {
