@@ -61,7 +61,7 @@ fn test_exprs() {
         "(127 downto 96 => '1', others => '0')",
         "info.length + (4 - info.length(1 downto 0))",
         "vector_arr((others => '0'), (31 downto 0 => '1'), \"x\")",
-        //"arr(indices range a to f)",
+        "arr(indices range a to f)",
     ];
 
     for &expr in exprs.iter() {

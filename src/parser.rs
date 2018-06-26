@@ -79,6 +79,14 @@ impl<'a> ParseInfo<'a> {
         self.errors.push(err.clone());
         Err(err)
     }
+
+    /*
+    fn malformed_name_err<T>(&mut self) -> PResult<T> {
+        let err = ParseError::MalformedName;
+        self.errors.push(err.clone());
+        Err(err)
+    }
+    */
     /*
     fn expr_choices_without_designator<T>(&mut self) -> PResult<T> {
         let err = ParseError::ExprChoicesWithoutDesignator;
@@ -126,6 +134,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(())
     }
 
+    //
     // The expression superset is a thing to deal with
     // the many many elements the parensthised construct
     // following a name can be a part of.
@@ -181,6 +190,25 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
 
+    //
+    // superset_el ::=
+    //       [inertial] expr
+    //     | open
+    //     | expr to/downto expr
+    //     | subtype_indication_without_resolution
+    //
+    // subtype_indications may officially appear in any
+    // association_list.
+    // Additionally they are allowed as part of the array
+    // constraint of the subtype_indication itself; however
+    // this case explicitly forbids a resolution_indication
+    // in it, making it a lot easier to parse.
+    // I didn't find a specification for it, but I think
+    // subtype_indication in association_lists are only valid
+    // in generic maps, so we ignore it in the general case
+    // and parse the generic map list separately.
+    //      - Sebastian 26.06.18
+    //
     fn parse_expr_superset_element(&mut self) -> PResult<Expr> {
         let start = self.pos();
         if self.tok_is(Open) {
@@ -188,7 +216,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.advance_tok();
             return Ok(Expr::new(start.to(&end), ExprKind::Open));
 
-        } else if self.tok_is(Inertial) {
+        }
+
+        if self.tok_is(Inertial) {
             let local_start = self.pos();
             self.advance_tok();
 
@@ -205,32 +235,60 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return self.parse_choices_cont(expr);
         }
 
-        if self.tok_can_start_name() {
-            // This should be a subtype indication.
-            // The first expr is allowed to be either a name or
-            // parenthesised resolution indication.
-            if let ExprKind::Name(name) = &expr.kind {
-                if !name.is_simple() {
-                    return self.malformed_expr_err();
-                }
+        if expr.is_name() {
+            let mut name = expr.unwrap_name();
+            if self.tok_is(Range) {
+                self.advance_tok();
+                let range = self.parse_range()?;
 
+                let segment = NameSegment {
+                    pos: range.pos,
+                    kind: SegmentKind::AttachedExpression(Box::new(range)),
+                };
+                name.add_segment(segment);
             }
 
-
-            let name = self.parse_name()?;
-
-            // TODO, Broken: Passing None to resolution indication for the
-            // subtype indication is wrong, but it is a bit of a pain in the
-            // ass to try converting an expression to a resolution indication.
-            // We'll have to deal with this soon. - 19.06.18
-            return Ok(Expr::new(start.to(&name.pos), ExprKind::SubtypeIndication(SubtypeIndication{
-                pos: start.to(&name.pos),
+            let pos = name.pos;
+            let indication = SubtypeIndication {
+                pos,
                 typemark: name,
                 resolution: None,
-            })));
+            };
+
+            return Ok(Expr::new(pos, ExprKind::SubtypeIndication(indication)));
         }
 
         return Ok(expr);
+    }
+
+    fn parse_range(&mut self) -> PResult<Expr> {
+        let lhs = self.parse_expression()?;
+
+        let mut is_attr = false;
+        if let ExprKind::Name(ref name) = lhs.kind {
+            if name.is_attribute() {
+                is_attr = true;
+            }
+        }
+
+        if is_attr { return Ok(lhs); }
+
+        if !self.tok_is_one_of(&[To, Downto]) {
+            return self.unexpected_tok();
+        }
+
+        let dir: Direction = self.kind().into();
+        self.advance_tok();
+        let rhs = self.parse_expression()?;
+
+        let pos = lhs.pos.to(&rhs.pos);
+        let range = RangeExpr {
+            lhs: Box::new(lhs),
+            dir,
+            rhs: Box::new(rhs)
+        };
+
+        Ok(Expr::new(pos, ExprKind::Range(range)))
     }
 
     fn parse_choices_cont(&mut self, start_expr: Expr) -> PResult<Expr> {
@@ -297,10 +355,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.eat_expect(RParen)?;
 
         let inner: Expr = exprs.into();
-        let outer = Expr::new(start.to(&self.pos()), ExprKind::Paren {
-            lvl: 1 + inner.nesting_lvl(),
-            expr: Box::new(inner),
-        });
+        let outer = Expr::new_paren(start.to(&self.pos()), inner);
 
         Ok(outer)
     }
@@ -511,6 +566,29 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.tok_is_one_of(&[LtLt, Ident, CharLiteral, StringLiteral])
     }
 
+    pub fn parse_selected_name(&mut self) -> PResult<Name> {
+
+        let mut name = Name::default();
+
+        loop {
+            if self.tok_is(All) {
+                name.add_segment(NameSegment {
+                    pos: self.pos(),
+                    kind: SegmentKind::AllQualifier 
+                });
+                self.advance_tok();
+                break;
+            }
+
+            let segment = self.parse_name_prefix_segment()?;
+            name.add_segment(segment);
+
+            if !self.tok_is(Dot) { break; }
+        }
+
+        Ok(name)
+    }
+
     pub fn parse_name(&mut self) -> PResult<Name> {
         if self.tok_is(LtLt) {
             return self.parse_external_name();
@@ -525,14 +603,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
         name.pos = self.pos();
 
         let segment = self.parse_name_prefix_segment()?;
-        name.segments.push(segment);
+        name.add_segment(segment);
 
 
         loop {
             match self.kind() {
                 LBracket => {
                     let signature = self.parse_signature()?;
-                    name.segments.push(NameSegment {
+                    name.add_segment(NameSegment {
                         pos: signature.pos,
                         kind: SegmentKind::Signature(Box::new(signature)),
                     });
@@ -551,7 +629,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         return self.unexpected_tok();
                     }
 
-                    name.segments.push(NameSegment {
+                    name.add_segment(NameSegment {
                         pos: self.pos(),
                         kind: SegmentKind::Identifier,
                     });
@@ -563,7 +641,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         self.advance_tok();
                         let expr = self.parse_expression()?;
                         self.eat_expect(RParen)?;
-                        name.segments.push(NameSegment {
+                        name.add_segment(NameSegment {
                             pos: local_start.to(&self.pos()),
                             kind: SegmentKind::AttachedExpression(Box::new(expr)),
                         });
@@ -582,7 +660,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         // name parsing to convert this to an expression later.
 
                         let expr = self.parse_expression()?;
-                        name.segments.push(NameSegment {
+                        name.add_segment(NameSegment {
                             pos: expr.pos,
                             kind: SegmentKind::QualifiedExpr(Box::new(expr)),
                         });
@@ -590,7 +668,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     }
 
                     if self.tok_is(Ident) {
-                        name.segments.push(NameSegment {
+                        name.add_segment(NameSegment {
                             pos: self.pos(),
                             kind: SegmentKind::Attribute,
                         });
@@ -604,7 +682,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     self.advance_tok(); // Eat .
 
                     if self.tok_is(All) {
-                        name.segments.push(NameSegment {
+                        name.add_segment(NameSegment {
                             pos: self.pos(),
                             kind: SegmentKind::AllQualifier,
                         });
@@ -614,7 +692,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     }
 
                     let segment = self.parse_name_prefix_segment()?;
-                    name.segments.push(segment);
+                    name.add_segment(segment);
 
                 },
                 LParen   => {
@@ -628,7 +706,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
                     let attached_expr = self.parse_expr_superset()?;
 
-                    name.segments.push( NameSegment {
+                    name.add_segment( NameSegment {
                         pos:  attached_expr.pos,
                         kind: SegmentKind::AttachedExpression(Box::new(attached_expr)),
                     });

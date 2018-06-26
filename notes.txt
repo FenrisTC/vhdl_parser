@@ -220,14 +220,19 @@ superset_list_el ::=
     | inertial expr
     | subtype_indication
 
-superset_list_el ::=
+superset_el ::=
       [inertial] expr
+    | open
     | expr name
     | expr to/downto expr
-    | open
-    | subtype_indication
+    | subtype_indication_without_resolution
 
 subtype_indication ::=
       name  name [constraint]
     | (res) name [constraint]
     | name [constraint]
+
+res ::=
+      name
+    | (res)
+    | (name res {, name res} )

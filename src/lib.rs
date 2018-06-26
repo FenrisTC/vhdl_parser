@@ -31,6 +31,7 @@ pub enum ParseError {
     ExprChoicesWithoutDesignator,
     InvalidOpSymbolString,
     MalformedExpr,
+    MalformedName,
     UnexpectedToken(token::Token, String),
     UnexpectedEoF,
     Internal,

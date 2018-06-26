@@ -325,6 +325,13 @@ impl Expr {
         }
     }
 
+    pub fn new_paren(pos: SrcPos, inner: Expr) -> Expr {
+        Expr::new(pos, ExprKind::Paren {
+            lvl: 1 + inner.nesting_lvl(),
+            expr: Box::new(inner),
+        })
+    }
+
     pub fn is_valid_choices(&self) -> bool {
         match self.kind {
             ExprKind::List(ref vec) => {
@@ -338,6 +345,21 @@ impl Expr {
             ExprKind::Other    => true,
             _ => false,
         }
+    }
+
+    pub fn is_name(&self) -> bool {
+        match self.kind {
+            ExprKind::Name(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn unwrap_name(self) -> Name {
+        match self.kind {
+            ExprKind::Name(name) => name,
+            _ => panic!(),
+        }
+
     }
 
     pub fn without_parens(&self) -> &Expr {
@@ -408,6 +430,11 @@ pub struct Name {
 }
 
 impl Name {
+    pub fn add_segment(&mut self, seg: NameSegment) {
+        self.pos = self.pos.to(&seg.pos);
+        self.segments.push(seg);
+    }
+
     pub fn is_qualifiend_expr(&self) -> bool {
         if self.segments.len() < 2 {
             return false;
@@ -418,8 +445,15 @@ impl Name {
         }
     }
 
+    pub fn is_attribute(&self) -> bool {
+        match self.segments.last() {
+            Some(NameSegment {pos: _, kind: SegmentKind::Attribute }) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_simple(&self) -> bool {
-        return self.segments.len() == 1 &&
+        self.segments.len() == 1 &&
             match self.segments.first().map(|ref seg| &seg.kind) {
                 Some(SegmentKind::Identifier) => true,
                 _ => false,
