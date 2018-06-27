@@ -10,7 +10,7 @@ use ast;
 use ast::{Expr, ExprKind, SegmentKind, Direction, Op, Name, Assoc, Signature};
 use ast::{QualifiedExpr, ResolutionIndication, DiscreteRange, Constraint, SubtypeIndication};
 use ast::{EntityDeclaration, PortDeclaration, Mode, AssocExpr, NameSegment, RangeExpr, NumericLit, StringLit, CharLit};
-use ast::{BinOpExpr, Identifier, ElementConstraint, GenericDeclaration, InterfaceSubprogramDeclaration, InterfacePackageDeclaration};
+use ast::{BinOpExpr, Identifier, ElementConstraint, GenericDeclaration, InterfaceSubprogramDeclaration, InterfacePackageDeclaration, InterfaceConstantDeclaration, Designator, OperatorSymbol, InterfaceSubprogramDefault, InterfaceObjectDeclaration, InterfaceSubprogramKind, InterfaceGenericMap, InterfaceObjectClass};
 //use ast::*;
 
 #[derive(Debug)]
@@ -84,6 +84,12 @@ impl<'a> ParseInfo<'a> {
         self.errors.push(err.clone());
         Err(err)
     }
+
+    fn err<T>(&mut self, err: ParseError) -> PResult<T> {
+        self.errors.push(err.clone());
+        Err(err)
+    }
+
 
     #[allow(dead_code)]
     fn malformed_discrete_range<T>(&mut self) -> PResult<T> {
@@ -1000,7 +1006,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             port.mode = mode;
         }
 
-        port.typemark = self.parse_subtype_indication()?;
+        port.subtype = self.parse_subtype_indication()?;
 
         if self.tok_is(Bus) {
             port.is_bus = true;
@@ -1016,12 +1022,229 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(port)
     }
 
-    fn parse_interface_package_declaration(&mut self) -> PResult<InterfacePackageDeclaration> {
+    fn parse_interface_generic_map(&mut self) -> PResult<InterfaceGenericMap> {
+        // Incomplete: This might be a bit nasty, the subtype indication will
+        // probably screw things up royally.
         unimplemented!();
     }
 
+    fn parse_interface_object_declaration(&mut self) -> PResult<InterfaceObjectDeclaration> {
+        let start = self.pos();
+        let class = InterfaceObjectClass::try_from_token(self.kind());
+        if class.is_some() {
+            self.advance_tok();
+        }
+
+        let mut idents = Vec::<Identifier>::default();
+        loop {
+            if !self.tok_is(Ident) { return self.unexpected_tok(); }
+
+            idents.push(Identifier { pos: self.pos() });
+            self.advance_tok();
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        self.eat_expect(Colon)?;
+
+        let mode = Mode::try_from_tokenkind(self.kind());
+        if mode.is_some() {
+            self.advance_tok();
+        }
+
+        let subtype = self.parse_subtype_indication()?;
+
+        let is_bus = if self.tok_is(Bus) { true } else { false };
+
+        let default_expr = if self.tok_is(ColonEq) {
+            self.advance_tok();
+            let expr = self.parse_expression()?;
+            Some(Box::new(expr))
+        } else {
+            None
+        };
+
+        let pos = start.to(&self.last_pos);
+
+        let decl = InterfaceObjectDeclaration {
+            pos,
+            class,
+            idents,
+            mode,
+            subtype,
+            is_bus,
+            default_expr,
+        };
+
+        Ok(decl)
+    }
+
+    fn parse_interface_package_declaration(&mut self) -> PResult<InterfacePackageDeclaration> {
+        debug_assert!(self.tok.kind == Package);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) {
+            return self.unexpected_tok();
+        }
+
+        let name = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        self.eat_expect(Is)?;
+        self.eat_expect(New)?;
+
+        let referred_pkg = self.parse_name()?;
+
+        let map = self.parse_interface_generic_map()?;
+
+        Ok(InterfacePackageDeclaration {
+            pos: start.to(&map.pos()),
+            name,
+            referred_pkg: Box::new(referred_pkg),
+            map,
+        })
+    }
+
+
     fn parse_interface_subprogram_declaration(&mut self) -> PResult<InterfaceSubprogramDeclaration> {
-        unimplemented!();
+        debug_assert!(self.tok.kind == Pure || self.tok.kind == Impure ||
+                      self.tok.kind == Procedure || self.tok.kind == Function);
+
+
+        let start = self.pos();
+        let is_pure = if self.tok_is(Pure) {
+            self.advance_tok();
+            Some(true)
+        } else if self.tok_is(Impure) {
+            self.advance_tok();
+            Some(false)
+        } else {
+            None
+        };
+
+        let is_function = if self.tok_is(Procedure) {
+            self.advance_tok();
+            false
+        } else if self.tok_is(Function) {
+            self.advance_tok();
+            true
+        } else {
+            return self.unexpected_tok();
+        };
+
+        let designator = if self.tok_is(Ident) {
+            Designator::Identifier(Identifier { pos: self.pos() })
+        } else if let Some(op) = Op::from_op_symbol(self.scan.ctx.text_from_pos(self.pos())) {
+            Designator::OperatorSymbol(OperatorSymbol { pos: self.pos(), op: op })
+        } else {
+            return self.unexpected_tok();
+        };
+
+        let mut parameters = Vec::<InterfaceObjectDeclaration>::default();
+        if self.tok_is_one_of(&[LParen, Parameter]) {
+            if self.tok_is(Parameter) {
+                self.advance_tok();
+            }
+            self.eat_expect(LParen)?;
+            loop {
+                let object = self.parse_interface_object_declaration()?;;
+                parameters.push(object);
+
+                if !self.tok_is(Semicolon) { break; }
+                self.advance_tok();
+            }
+            self.eat_expect(RParen)?;
+        }
+
+        let return_type = if self.tok_is(Return) {
+            self.advance_tok();
+            if !self.tok_can_start_name() {
+                return self.unexpected_tok();
+            }
+            let name = self.parse_name()?;
+            Some(name)
+        } else {
+            None
+        };
+
+        let default = if self.tok_is(Is) {
+            self.advance_tok();
+            if self.tok_can_start_name() {
+                let name = self.parse_name()?;
+                Some(InterfaceSubprogramDefault::Name(Box::new(name)))
+            } else if self.tok_is(LtGt) {
+                let pos = self.pos();
+                self.advance_tok();
+                Some(InterfaceSubprogramDefault::Box(pos))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let kind = if is_function {
+            if return_type.is_none() { return self.err(ParseError::NoReturnInFunction); }
+
+            InterfaceSubprogramKind::Function {
+                is_pure: is_pure.unwrap_or(true),
+                return_type: Box::new(return_type.unwrap()),
+            }
+        } else {
+            if is_pure.is_some()     { return self.err(ParseError::PurityInProcedure); }
+            if return_type.is_some() { return self.err(ParseError::ReturnInProcedure); }
+            InterfaceSubprogramKind::Procedure
+        };
+
+
+        let decl = InterfaceSubprogramDeclaration {
+            pos: start.to(&self.last_pos),
+            kind,
+            designator,
+            parameters,
+            default,
+        };
+        Ok(decl)
+    }
+
+    fn parse_interface_constant_declaration(&mut self) -> PResult<InterfaceConstantDeclaration> {
+        debug_assert!(self.tok.kind == Constant || self.tok.kind == Ident);
+        let mut decl = InterfaceConstantDeclaration::default();
+        let start = self.pos();
+
+        if self.tok_is(Constant) {
+            self.advance_tok();
+        }
+
+        loop {
+            if !self.tok_is(Ident) {
+                return self.unexpected_tok();
+            }
+            decl.idents.push(Identifier {pos: self.pos() });
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        self.eat_expect(Colon)?;
+
+        if self.tok_is(In) {
+            self.advance_tok();
+        }
+
+        decl.subtype = self.parse_subtype_indication()?;
+        decl.pos = start.to(&decl.subtype.pos);
+
+        if self.tok_is(ColonEq) {
+            self.advance_tok();
+            let expr = self.parse_expression()?;
+            decl.pos = start.to(&expr.pos);
+            decl.default_expr = Some(Box::new(expr));
+        }
+
+        Ok(decl)
     }
 
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
@@ -1069,12 +1292,12 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     let generic = GenericDeclaration::Subprogram(proc);
                     generics.push(generic);
                 } else if self.tok_is_one_of(&[Ident, Constant]) {
-                    //
+                    let constant = self.parse_interface_constant_declaration()?;
+                    let generic  = GenericDeclaration::Constant(constant);
+                    generics.push(generic);
                 } else {
                     return self.unexpected_tok();
                 }
-
-
 
                 if !self.tok_is(Semicolon) { break; }
                 self.advance_tok();

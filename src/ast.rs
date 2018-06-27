@@ -631,14 +631,14 @@ pub struct EntityDeclaration {
 pub struct InterfaceConstantDeclaration {
     pub pos: SrcPos,
     pub idents: Vec<Identifier>,
-    pub typemark: SubtypeIndication,
+    pub subtype: SubtypeIndication,
     pub default_expr: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct OperatorSymbol {
-    pos: SrcPos,
-    op: Op,
+    pub pos: SrcPos,
+    pub op: Op,
 }
 
 #[derive(Debug, Clone)]
@@ -655,12 +655,27 @@ pub enum InterfaceObjectClass {
     File,
 }
 
+impl InterfaceObjectClass {
+    pub fn try_from_token(kind: TokenKind) -> Option<InterfaceObjectClass> {
+        match kind {
+            Constant => Some(InterfaceObjectClass::Constant),
+            Signal   => Some(InterfaceObjectClass::Signal),
+            Variable => Some(InterfaceObjectClass::Variable),
+            File     => Some(InterfaceObjectClass::File),
+            _ => None,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, Default)]
 pub struct InterfaceObjectDeclaration {
+    pub pos:          SrcPos,
     pub class:        Option<InterfaceObjectClass>,
     pub idents:       Vec<Identifier>,
     pub mode:         Option<Mode>,
-    pub typemark:     SubtypeIndication,
+    pub subtype:      SubtypeIndication,
+    pub is_bus:       bool,
     pub default_expr: Option<Box<Expr>>,
 }
 
@@ -691,11 +706,20 @@ pub struct InterfaceSubprogramDeclaration {
 
 #[derive(Debug, Clone)]
 pub enum InterfaceGenericMap {
-    Map, // Incomplete: Implement geneneric_map_aspect!
-    Box,
-    Default,
+    Map(SrcPos), // Incomplete: Implement geneneric_map_aspect!
+    Box(SrcPos),
+    Default(SrcPos),
 }
 
+impl InterfaceGenericMap {
+    pub fn pos(&self) -> SrcPos {
+        match self {
+            InterfaceGenericMap::Map(pos) => pos.clone(),
+            InterfaceGenericMap::Box(pos) => pos.clone(),
+            InterfaceGenericMap::Default(pos) => pos.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct InterfacePackageDeclaration {
@@ -718,7 +742,7 @@ pub struct PortDeclaration {
     pub pos: SrcPos,
     pub idents: Vec<Identifier>,
     pub mode: Mode,
-    pub typemark: SubtypeIndication,
+    pub subtype: SubtypeIndication,
     pub is_bus: bool,
     pub default_expr: Option<Box<Expr>>,
 }
