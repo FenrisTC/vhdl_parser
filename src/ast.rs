@@ -620,25 +620,111 @@ pub struct Identifier {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct EntityDecl {
+pub struct EntityDeclaration {
     pub pos: SrcPos,
     pub name: Identifier,
-    //pub generics: Vec<InterfaceDecl>,
-    pub ports: Vec<PortDecl>,
+    pub generics: Vec<GenericDeclaration>,
+    pub ports: Vec<PortDeclaration>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct PortDecl {
+pub struct InterfaceConstantDeclaration {
     pub pos: SrcPos,
     pub idents: Vec<Identifier>,
-    pub mode: PortMode,
+    pub typemark: SubtypeIndication,
+    pub default_expr: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OperatorSymbol {
+    pos: SrcPos,
+    op: Op,
+}
+
+#[derive(Debug, Clone)]
+pub enum Designator {
+    Identifier(Identifier),
+    OperatorSymbol(OperatorSymbol),
+}
+
+#[derive(Debug, Clone)]
+pub enum InterfaceObjectClass {
+    Constant,
+    Signal,
+    Variable,
+    File,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InterfaceObjectDeclaration {
+    pub class:        Option<InterfaceObjectClass>,
+    pub idents:       Vec<Identifier>,
+    pub mode:         Option<Mode>,
+    pub typemark:     SubtypeIndication,
+    pub default_expr: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum InterfaceSubprogramDefault {
+    Name(Box<Name>),
+    Box(SrcPos),
+}
+
+
+#[derive(Debug, Clone)]
+pub enum InterfaceSubprogramKind {
+    Procedure,
+    Function{
+        is_pure: bool,
+        return_type: Box<Name>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceSubprogramDeclaration {
+    pub pos: SrcPos,
+    pub kind: InterfaceSubprogramKind,
+    pub designator: Designator,
+    pub parameters: Vec<InterfaceObjectDeclaration>,
+    pub default: Option<InterfaceSubprogramDefault>,
+}
+
+#[derive(Debug, Clone)]
+pub enum InterfaceGenericMap {
+    Map, // Incomplete: Implement geneneric_map_aspect!
+    Box,
+    Default,
+}
+
+
+#[derive(Debug, Clone)]
+pub struct InterfacePackageDeclaration {
+    pub pos: SrcPos,
+    pub name: Identifier,
+    pub referred_pkg: Box<Name>,
+    pub map: InterfaceGenericMap,
+}
+
+#[derive(Debug, Clone)]
+pub enum GenericDeclaration {
+    Constant(InterfaceConstantDeclaration),
+    Type(Identifier),
+    Subprogram(InterfaceSubprogramDeclaration),
+    Package(InterfacePackageDeclaration),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PortDeclaration {
+    pub pos: SrcPos,
+    pub idents: Vec<Identifier>,
+    pub mode: Mode,
     pub typemark: SubtypeIndication,
     pub is_bus: bool,
     pub default_expr: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone)]
-pub enum PortMode {
+pub enum Mode {
     In,
     Out,
     Inout,
@@ -646,20 +732,20 @@ pub enum PortMode {
     Linkage
 }
 
-impl Default for PortMode {
-    fn default() -> PortMode {
-        PortMode::In
+impl Default for Mode {
+    fn default() -> Mode {
+        Mode::In
     }
 }
 
-impl PortMode {
-    pub fn try_from_tokenkind(kind: TokenKind) -> Option<PortMode> {
+impl Mode {
+    pub fn try_from_tokenkind(kind: TokenKind) -> Option<Mode> {
         match kind {
-            TokenKind::In =>      Some(PortMode::In),
-            TokenKind::Out =>     Some(PortMode::Out),
-            TokenKind::Inout =>   Some(PortMode::Inout),
-            TokenKind::Buffer =>  Some(PortMode::Buffer),
-            TokenKind::Linkage => Some(PortMode::Linkage),
+            TokenKind::In =>      Some(Mode::In),
+            TokenKind::Out =>     Some(Mode::Out),
+            TokenKind::Inout =>   Some(Mode::Inout),
+            TokenKind::Buffer =>  Some(Mode::Buffer),
+            TokenKind::Linkage => Some(Mode::Linkage),
             _ => None,
         }
     }

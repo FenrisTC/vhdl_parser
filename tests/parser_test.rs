@@ -92,6 +92,7 @@ fn test_subtype_indications() {
         "std_logic_vector(data_bits - 1 downto 0)",
         "natural range 0 to natural'high",
         "array_sig range indices'range",
+        "arr(indices range a to g)",
         "resolved std_ulogic",
         "resolved std_ulogic_vector(5 downto 0)",
         "(resolved) std_ulogic_vector",

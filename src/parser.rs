@@ -9,8 +9,8 @@ use {ParseError, PResult};
 use ast;
 use ast::{Expr, ExprKind, SegmentKind, Direction, Op, Name, Assoc, Signature};
 use ast::{QualifiedExpr, ResolutionIndication, DiscreteRange, Constraint, SubtypeIndication};
-use ast::{EntityDecl, PortDecl, PortMode, AssocExpr, NameSegment, RangeExpr, NumericLit, StringLit, CharLit};
-use ast::{BinOpExpr, Identifier, ElementConstraint};
+use ast::{EntityDeclaration, PortDeclaration, Mode, AssocExpr, NameSegment, RangeExpr, NumericLit, StringLit, CharLit};
+use ast::{BinOpExpr, Identifier, ElementConstraint, GenericDeclaration, InterfaceSubprogramDeclaration, InterfacePackageDeclaration};
 //use ast::*;
 
 #[derive(Debug)]
@@ -978,7 +978,53 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(subtype)
     }
 
-    pub fn parse_entity_decl(&mut self) -> PResult<EntityDecl> {
+    fn parse_port_declaration(&mut self) -> PResult<PortDeclaration> {
+        let port_start = self.pos();
+        let mut port = PortDeclaration::default();
+        if self.tok_is(Signal) {
+            self.advance_tok();
+        }
+
+        loop {
+            if !self.tok_is(Ident) {
+                return self.unexpected_tok();
+            }
+            port.idents.push(Identifier { pos: self.pos() });
+
+            if !self.tok_is(Comma) { break; }
+        }
+
+        self.eat_expect(Colon)?;
+
+        if let Some(mode) = Mode::try_from_tokenkind(self.kind()) {
+            port.mode = mode;
+        }
+
+        port.typemark = self.parse_subtype_indication()?;
+
+        if self.tok_is(Bus) {
+            port.is_bus = true;
+        }
+
+        if self.tok_is(ColonEq) {
+            self.advance_tok();
+            let expr = self.parse_expression()?;
+            port.default_expr = Some(Box::new(expr));
+        }
+
+        port.pos = port_start.to(&self.pos());
+        Ok(port)
+    }
+
+    fn parse_interface_package_declaration(&mut self) -> PResult<InterfacePackageDeclaration> {
+        unimplemented!();
+    }
+
+    fn parse_interface_subprogram_declaration(&mut self) -> PResult<InterfaceSubprogramDeclaration> {
+        unimplemented!();
+    }
+
+    pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
         debug_assert!(self.kind() == Entity);
         let start = self.pos();
         self.advance_tok();
@@ -987,66 +1033,73 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return self.unexpected_tok();
         }
 
-        let mut entity = EntityDecl::default();
+        let mut entity = EntityDeclaration::default();
         entity.name = Identifier{ pos: self.pos() };
 
         self.advance_tok();
 
         self.eat_expect(Is)?;
 
+        // generic_clause ::= _generic_ ( generic_list );
+        // generic_list   ::= interface_generic_declaration {; interface_generic_declaration }
+        // interface_generic_declaration ::=
+        //        interface_constant_declaration
+        //      | interface_type_declaration
+        //      | interface_subprogram_declaration
+        //      | interface_package_declaration
         if self.tok_is(Generic) {
             self.advance_tok();
             self.eat_expect(LParen)?;
+            let mut generics = Vec::<GenericDeclaration>::default();
+            loop {
+
+                if self.tok_is(Package) {
+                    let package = self.parse_interface_package_declaration()?;
+                    let generic = GenericDeclaration::Package(package);
+                    generics.push(generic);
+                } else if self.tok_is(Type) {
+                    self.advance_tok();
+                    if !self.tok_is(Ident) {
+                        return self.unexpected_tok();
+                    }
+                    let generic = GenericDeclaration::Type(Identifier{pos: self.pos()});
+                    generics.push(generic);
+                } else if self.tok_is_one_of(&[Pure, Impure, Procedure, Function]) {
+                    let proc = self.parse_interface_subprogram_declaration()?;
+                    let generic = GenericDeclaration::Subprogram(proc);
+                    generics.push(generic);
+                } else if self.tok_is_one_of(&[Ident, Constant]) {
+                    //
+                } else {
+                    return self.unexpected_tok();
+                }
+
+
+
+                if !self.tok_is(Semicolon) { break; }
+                self.advance_tok();
+            }
             //entity.generics = self.parse_interface_list()?;
             self.eat_expect(RParen)?;
             self.eat_expect(Semicolon)?;
         }
 
+        // port_clause ::= _port_ ( port_list );
+        // port_list   ::= interface_signal_declaration {; interface_signal_declaration}
         if self.tok_is(Port) {
             self.advance_tok();
             self.eat_expect(LParen)?;
             loop {
-                let port_start = self.pos();
-                let mut port = PortDecl::default();
-                if self.tok_is(Signal) {
-                    self.advance_tok();
-                }
-
-                loop {
-                    if !self.tok_is(Ident) {
-                        return self.unexpected_tok();
-                    }
-                    port.idents.push(Identifier { pos: self.pos() });
-
-                    if !self.tok_is(Comma) { break; }
-                }
-
-                self.eat_expect(Colon)?;
-
-                if let Some(mode) = PortMode::try_from_tokenkind(self.kind()) {
-                    port.mode = mode;
-                }
-
-                port.typemark = self.parse_subtype_indication()?;
-
-                if self.tok_is(Bus) {
-                    port.is_bus = true;
-                }
-
-                if self.tok_is(ColonEq) {
-                    self.advance_tok();
-                    let expr = self.parse_expression()?;
-                    port.default_expr = Some(Box::new(expr));
-                }
-
-                port.pos = port_start.to(&self.pos());
+                let port = self.parse_port_declaration()?;
+                entity.ports.push(port);
                 if !self.tok_is(Semicolon) { break; }
+                self.advance_tok();
             }
             self.eat_expect(RParen)?;
             self.eat_expect(Semicolon)?;
         }
 
-        // Incomplete: The declerative part needs to be parsed as well.
+        // Incomplete: The declarative part needs to be parsed as well.
         // (PSL statements are missing from this list)
         //     Sebastian 19.06.18
         while self.tok_is_one_of(&[Function, Procedure, Package, Type, Subtype, Constant, Signal, Shared, File, Alias, Attribute, Disconnect, Use, Group]) {
@@ -1055,6 +1108,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.advance_tok();
         }
 
+        // Incomplete: Entity statement part needs to be parsed as well.
         if self.tok_is(Begin) {
             while !self.tok_is_one_of(&[End, EoF]) { self.advance_tok(); }
         }
