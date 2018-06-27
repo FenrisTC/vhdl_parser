@@ -32,6 +32,7 @@ pub enum ParseError {
     InvalidOpSymbolString,
     MalformedExpr,
     MalformedName,
+    MalformedDiscreteRange,
     UnexpectedToken(token::Token, String),
     UnexpectedEoF,
     Internal,

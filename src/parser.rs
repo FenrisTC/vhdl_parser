@@ -6,7 +6,12 @@ use token::TokenKind::*;
 use lexer::{ScanInfo, ParseContext};
 use SrcPos;
 use {ParseError, PResult};
-use ast::*;
+use ast;
+use ast::{Expr, ExprKind, SegmentKind, Direction, Op, Name, Assoc, Signature};
+use ast::{QualifiedExpr, ResolutionIndication, DiscreteRange, Constraint, SubtypeIndication};
+use ast::{EntityDecl, PortDecl, PortMode, AssocExpr, NameSegment, RangeExpr, NumericLit, StringLit, CharLit};
+use ast::{BinOpExpr, Identifier, ElementConstraint};
+//use ast::*;
 
 #[derive(Debug)]
 pub struct ParseInfo<'a> {
@@ -75,6 +80,13 @@ impl<'a> ParseInfo<'a> {
     }
 
     fn malformed_expr_err<T>(&mut self) -> PResult<T> {
+        let err = ParseError::MalformedExpr;
+        self.errors.push(err.clone());
+        Err(err)
+    }
+
+    #[allow(dead_code)]
+    fn malformed_discrete_range<T>(&mut self) -> PResult<T> {
         let err = ParseError::MalformedExpr;
         self.errors.push(err.clone());
         Err(err)
@@ -238,21 +250,27 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if expr.is_name() {
             let mut name = expr.unwrap_name();
             if self.tok_is(Range) {
+                let start = self.pos();
                 self.advance_tok();
                 let range = self.parse_range()?;
+                let end = self.pos();
 
                 let segment = NameSegment {
-                    pos: range.pos,
-                    kind: SegmentKind::AttachedExpression(Box::new(range)),
+                    pos: start.to(&end),
+                    kind: SegmentKind::AttachedRange(Box::new(range)),
                 };
                 name.add_segment(segment);
             }
+
+            let constraint = name.pop_constraint();
+            let constraint = constraint.map(|c| Box::new(c));
 
             let pos = name.pos;
             let indication = SubtypeIndication {
                 pos,
                 typemark: name,
                 resolution: None,
+                constraint: constraint,
             };
 
             return Ok(Expr::new(pos, ExprKind::SubtypeIndication(indication)));
@@ -261,7 +279,24 @@ impl<'srcfile> ParseInfo<'srcfile> {
         return Ok(expr);
     }
 
-    fn parse_range(&mut self) -> PResult<Expr> {
+    fn parse_range_expr_cont(&mut self, lhs: Expr) -> PResult<RangeExpr> {
+        debug_assert!(self.tok.kind == To || self.tok.kind == Downto);
+
+        let dir: Direction = self.kind().into();
+        self.advance_tok();
+        let rhs = self.parse_expression()?;
+
+        let range = RangeExpr {
+            lhs: Box::new(lhs),
+            dir,
+            rhs: Box::new(rhs)
+        };
+
+        Ok(range)
+    }
+
+    #[allow(dead_code)]
+    fn parse_range(&mut self) -> PResult<ast::Range> {
         let lhs = self.parse_expression()?;
 
         let mut is_attr = false;
@@ -271,24 +306,16 @@ impl<'srcfile> ParseInfo<'srcfile> {
             }
         }
 
-        if is_attr { return Ok(lhs); }
+        if is_attr {
+            let range = ast::Range::Name(lhs.unwrap_name());
+            return Ok(range);
+        }
 
         if !self.tok_is_one_of(&[To, Downto]) {
             return self.unexpected_tok();
         }
-
-        let dir: Direction = self.kind().into();
-        self.advance_tok();
-        let rhs = self.parse_expression()?;
-
-        let pos = lhs.pos.to(&rhs.pos);
-        let range = RangeExpr {
-            lhs: Box::new(lhs),
-            dir,
-            rhs: Box::new(rhs)
-        };
-
-        Ok(Expr::new(pos, ExprKind::Range(range)))
+        let range = self.parse_range_expr_cont(lhs)?;
+        Ok(ast::Range::Expr(range))
     }
 
     fn parse_choices_cont(&mut self, start_expr: Expr) -> PResult<Expr> {
@@ -490,6 +517,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.parse_expr_with_precedence(0)
     }
 
+    pub fn parse_simple_expression(&mut self) -> PResult<Expr> {
+        self.parse_expr_with_precedence(Op::Add.precedence())
+    }
+
 
     pub fn parse_external_name(&mut self) -> PResult<Name> {
         unimplemented!();
@@ -667,7 +698,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         break;
                     }
 
-                    if self.tok_is(Ident) {
+                    if self.tok_is_one_of(&[Ident, Range]) {
                         name.add_segment(NameSegment {
                             pos: self.pos(),
                             kind: SegmentKind::Attribute,
@@ -798,6 +829,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             }
 
             if !self.tok_is(Comma) { break; }
+            self.advance_tok();
         }
 
         let end = self.pos();
@@ -816,23 +848,110 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
 
-    fn parse_element_constraint(&mut self) -> PResult<Constraint> {
+    fn parse_discrete_range(&mut self) -> PResult<DiscreteRange> {
+        let lhs = self.parse_simple_expression()?;
+
+        if self.tok_is_one_of(&[To, Downto]) {
+            let range = self.parse_range_expr_cont(lhs)?;
+            return Ok(DiscreteRange::Range(range));
+        }
+
+        if self.tok_is(Range) {
+            if !lhs.is_name() {
+                return self.unexpected_tok();
+            }
+            let name = lhs.unwrap_name();
+            let range_start = self.pos();
+            self.advance_tok();
+            let range = self.parse_range()?;
+            let range_pos = range_start.to(&range.pos());
+
+            let subtype_indication = SubtypeIndication {
+                pos: name.pos.to(&range.pos()),
+                typemark: name,
+                resolution: None,
+                constraint: Some(Box::new(Constraint::new_range(range_pos, range))),
+            };
+            return Ok(DiscreteRange::SubtypeIndication(subtype_indication));
+        }
+
+        if lhs.is_name() {
+            let mut name = lhs.unwrap_name();
+
+            if name.is_attribute() {
+                return Ok(DiscreteRange::Attribute(name));
+            }
+
+            let constraint = name.pop_constraint();
+            let constraint = constraint.map(|c| Box::new(c));
+            let subtype_indication = SubtypeIndication {
+                pos: name.pos.to(&self.pos()),
+                typemark: name,
+                resolution: None,
+                constraint: constraint,
+            };
+            return Ok(DiscreteRange::SubtypeIndication(subtype_indication));
+        }
+
+        self.malformed_discrete_range()
+    }
+
+    fn parse_element_constraint(&mut self) -> PResult<ElementConstraint> {
+        debug_assert!(self.tok.kind == LParen);
+
+        let start = self.pos();
         self.eat_expect(LParen)?;
+        if self.tok_is(Open) {
+            self.advance_tok();
+
+            let pos = start.to(&self.pos());
+            let next = if self.tok_is(LParen) {
+                Some(Box::new(self.parse_element_constraint()?))
+            } else {
+                None
+            };
+
+            let constraint = ElementConstraint::ArrayOpen { pos, next };
+
+            return Ok(constraint);
+        }
+
+        let mut constraints = Vec::<DiscreteRange>::default();
+        loop {
+            let element = self.parse_discrete_range()?;
+            constraints.push(element);
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
 
         self.eat_expect(RParen)?;
-        unimplemented!();
+
+        let next = if self.tok_is(LParen) {
+            Some(Box::new(self.parse_element_constraint()?))
+        } else {
+            None
+        };
+
+        let pos = start.to(&self.pos());
+        Ok(ElementConstraint::Array{
+            pos,
+            constraints,
+            next,
+        })
     }
 
     fn parse_constraint(&mut self) -> PResult<Constraint> {
         if self.tok_is(Range) {
-            let start = self.pos();
             self.advance_tok();
-            let expr = self.parse_range()?;
-            let pos  = start.to(&expr.pos);
-            return Ok(Constraint::Range{pos, expr});
+            let range = self.parse_range()?;
+            return Ok(Constraint::new_range(range.pos(), range));
         }
 
-        return self.parse_element_constraint();
+        let constraint = Box::new(self.parse_element_constraint()?);
+        let pos = constraint.pos();
+        Ok(Constraint::Element{constraint, pos})
+
     }
 
     pub fn parse_subtype_indication(&mut self) -> PResult<SubtypeIndication> {
@@ -853,7 +972,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         if self.tok_is_one_of(&[Range, LParen]) {
             let constraint = self.parse_constraint()?;
-            subtype.constraint = Box::new(constraint);
+            subtype.constraint = Some(Box::new(constraint));
         }
 
         Ok(subtype)

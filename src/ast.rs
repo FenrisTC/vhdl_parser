@@ -233,6 +233,13 @@ pub struct RangeExpr {
 }
 
 #[derive(Debug, Clone)]
+pub enum DiscreteRange {
+    SubtypeIndication(SubtypeIndication),
+    Range(RangeExpr),
+    Attribute(Name),
+}
+
+#[derive(Debug, Clone)]
 pub struct BinOpExpr {
     pub lhs: Box<Expr>,
     pub op: Op,
@@ -400,6 +407,7 @@ pub enum SegmentKind {
     QualifiedExpr(Box<Expr>),
     UnparsedBlob(Vec<Token>),
     AttachedExpression(Box<Expr>),
+    AttachedRange(Box<Range>),
     CharLiteral(char),
     Signature(Box<Signature>),
     Attribute,
@@ -460,6 +468,21 @@ impl Name {
         }
     }
 
+    pub fn pop_constraint(&mut self) -> Option<Constraint> {
+        match self.segments.last() {
+            Some(NameSegment {pos: _, kind: SegmentKind::AttachedExpression(_)}) => (),
+            _ => return None,
+        }
+
+        if let Some(NameSegment {pos: _, kind: SegmentKind::AttachedExpression(expr)}) = self.segments.last() {
+            // Try to convert the expression to a valid segment constraint
+
+            Constraint::try_from(expr)
+        } else {
+            None
+        }
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -508,11 +531,79 @@ impl ResolutionIndication {
 }
 
 #[derive(Debug, Clone)]
-pub enum Constraint {
-    Range {pos: SrcPos, expr: Box<Expr>},
-    Array {pos: SrcPos, expr: Box<Expr>, next: Option<Box<Constraint>>},
+pub enum Range {
+    Name(Name),
+    Expr(RangeExpr),
 }
 
+impl Range {
+    pub fn pos(&self) -> SrcPos {
+        match self {
+            Range::Name(name) => name.pos,
+            Range::Expr(expr) => expr.lhs.pos.to(&expr.rhs.pos),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ElementConstraint {
+    ArrayOpen{pos: SrcPos, next: Option<Box<ElementConstraint>>},
+    Array    {pos: SrcPos, constraints: Vec<DiscreteRange>, next: Option<Box<ElementConstraint>>},
+    Record   {pos: SrcPos, constraints: Vec< (Box<Name>, Box<ElementConstraint>) >},
+}
+
+impl ElementConstraint {
+    pub fn pos(&self) -> SrcPos {
+        match self {
+            ElementConstraint::ArrayOpen{pos, ..} => pos.clone(),
+            ElementConstraint::Array{pos, ..}     => pos.clone(),
+            ElementConstraint::Record{pos, ..}    => pos.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Constraint {
+    Range   {pos: SrcPos, constraint: Box<Range>},
+    Element {pos: SrcPos, constraint: Box<ElementConstraint>},
+}
+
+impl Constraint {
+    pub fn new_range(pos: SrcPos, range: Range) -> Constraint{
+        Constraint::Range {
+            pos: pos,
+            constraint: Box::new(range),
+        }
+    }
+
+    fn try_from(_expr: &Expr) -> Option<Constraint> {
+        /*
+        let pos = expr.pos;
+        if let ExprKind::Paren{expr: expr, ..} = expr.kind {
+            if let ExprKind::Range(_) = expr.kind {
+                let constraint = Constraint::new_range(*expr.clone());
+                return Some(constraint);
+            }
+
+            if let ExprKind::Open = expr.kind {
+                return Some(Constraint::Open{pos});
+            }
+
+            if let ExprKind::List(exprs) = expr.kind {
+
+            }
+
+            None
+        } else {
+            None
+        }
+        */
+        unimplemented!();
+
+
+    }
+
+}
 
 
 #[derive(Debug, Clone, Default)]

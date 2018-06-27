@@ -91,7 +91,7 @@ fn test_subtype_indications() {
         "std_logic_vector(0 to 31)",
         "std_logic_vector(data_bits - 1 downto 0)",
         "natural range 0 to natural'high",
-        "array range indices'range",
+        "array_sig range indices'range",
         "resolved std_ulogic",
         "resolved std_ulogic_vector(5 downto 0)",
         "(resolved) std_ulogic_vector",
@@ -106,6 +106,9 @@ fn test_subtype_indications() {
         let mut ctx : ParseContext = test.into();
         let mut parser : ParseInfo = (&mut ctx).into();
         let ast_test = parser.parse_subtype_indication();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
         assert!(ast_test.is_ok());
 
         let ast_test = ast_test.unwrap();
