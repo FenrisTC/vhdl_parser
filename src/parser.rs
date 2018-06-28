@@ -62,6 +62,7 @@ impl<'a> ParseInfo<'a> {
         let err = ParseError::UnexpectedToken(
             self.tok.clone(),
             self.scan.ctx.string_at_pos(&self.pos()),
+            self.expected.clone(),
         );
         self.errors.push(err.clone());
         Err(err)
@@ -181,7 +182,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             if self.tok_is(EqGt) {
                 // Check if expr is valid as the lhs of the
                 // association and parse the rhs.
-                if expr.is_valid_choices() || expr.is_valid_formal_part() {
+                if !(expr.is_valid_choices() || expr.is_valid_formal_part()) {
                     return self.malformed_expr_err();
                 }
 
@@ -247,39 +248,85 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return Ok(ret);
         }
 
-        let expr = self.parse_expression()?;
+        let expr = if self.tok_is(LParen) {
+            self.parse_expr_superset()
+        } else {
+            self.parse_expression()
+        }?;
 
         if self.tok_is_one_of(&[To, Downto, Bar]) {
             return self.parse_choices_cont(expr);
         }
 
-        if expr.is_name() {
-            let mut name = expr.unwrap_name();
-            if self.tok_is(Range) {
-                let start = self.pos();
-                self.advance_tok();
-                let range = self.parse_range()?;
-                let end = self.pos();
+        // If we find a name or somethin in paretheses,
+        // it could be a resolution_indication or typemark
+        // of a subtype_indication.
+        // …
+        // Or a part of a record consrtaint when expr is a name
+        // or any simple or selected name that is used as an actual.
+        //
+        if expr.is_name() || expr.is_paren() {
 
-                let segment = NameSegment {
-                    pos: start.to(&end),
-                    kind: SegmentKind::AttachedRange(Box::new(range)),
+            // The first expression better be a valid subtype
+            // resolution, because we just found something that
+            // looks like a typemark.
+            if self.tok_is(Ident) {
+                let resolution = ResolutionIndication::try_from(expr.clone());
+                if resolution.is_none() {
+                    return self.malformed_expr_err();
+                }
+
+                let typemark = self.parse_selected_name()?;
+
+                let constraint = if self.tok_is_one_of(&[Range, LParen]) {
+                    Some(Box::new(self.parse_constraint()?))
+                } else {
+                    None
                 };
-                name.add_segment(segment);
+
+                let indication = SubtypeIndication {
+                    pos: start.to(&self.last_pos),
+                    typemark,
+                    resolution,
+                    constraint
+                };
+                return Ok(Expr::new(start.to(&self.last_pos),
+                    ExprKind::SubtypeIndication(indication)
+                ));
+
             }
 
-            let constraint = name.pop_constraint();
-            let constraint = constraint.map(|c| Box::new(c));
+            // This expression looks like a typemark.
+            //
+            if expr.is_name() {
+                let mut name = expr.unwrap_name();
+                let constraint = if self.tok_is(Range) {
+                    Some(Box::new(self.parse_constraint()?))
+                } else {
+                    name.pop_constraint().map(|c| Box::new(c))
+                };
 
-            let pos = name.pos;
-            let indication = SubtypeIndication {
-                pos,
-                typemark: name,
-                resolution: None,
-                constraint: constraint,
-            };
+                //
+                // Well… While this could still be a subtype indication,
+                // it just looks like a regular name, so lets treat is as such.
+                // If it turns out during typechecking that this actually is a subtype
+                // we need to cast it at that stage.
+                //
+                if constraint.is_none() {
+                    return Ok(Expr::new(name.pos, ExprKind::Name(name)));
+                }
 
-            return Ok(Expr::new(pos, ExprKind::SubtypeIndication(indication)));
+
+                let pos = name.pos.to(&self.last_pos);
+                let indication = SubtypeIndication {
+                    pos,
+                    typemark: name,
+                    resolution: None,
+                    constraint: constraint,
+                };
+
+                return Ok(Expr::new(pos, ExprKind::SubtypeIndication(indication)));
+            }
         }
 
         return Ok(expr);
@@ -325,6 +372,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     fn parse_choices_cont(&mut self, start_expr: Expr) -> PResult<Expr> {
+        debug_assert!(self.tok.kind == To || self.tok.kind == Downto || self.tok.kind == Bar);
         let mut expr = start_expr;
         let mut choices = Vec::<Expr>::default();
         while self.tok_is_one_of(&[To, Downto, Bar]) {
@@ -996,14 +1044,17 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 return self.unexpected_tok();
             }
             port.idents.push(Identifier { pos: self.pos() });
+            self.advance_tok();
 
             if !self.tok_is(Comma) { break; }
+            self.advance_tok();
         }
 
         self.eat_expect(Colon)?;
 
         if let Some(mode) = Mode::try_from_tokenkind(self.kind()) {
             port.mode = mode;
+            self.advance_tok();
         }
 
         port.subtype = self.parse_subtype_indication()?;
@@ -1052,6 +1103,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if mode.is_some() {
             self.advance_tok();
         }
+
 
         let subtype = self.parse_subtype_indication()?;
 
@@ -1141,6 +1193,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
         } else {
             return self.unexpected_tok();
         };
+        self.advance_tok();
+
 
         let mut parameters = Vec::<InterfaceObjectDeclaration>::default();
         if self.tok_is_one_of(&[LParen, Parameter]) {
@@ -1223,6 +1277,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 return self.unexpected_tok();
             }
             decl.idents.push(Identifier {pos: self.pos() });
+            self.advance_tok();
 
             if !self.tok_is(Comma) { break; }
             self.advance_tok();
@@ -1286,6 +1341,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         return self.unexpected_tok();
                     }
                     let generic = GenericDeclaration::Type(Identifier{pos: self.pos()});
+                    self.advance_tok();
                     generics.push(generic);
                 } else if self.tok_is_one_of(&[Pure, Impure, Procedure, Function]) {
                     let proc = self.parse_interface_subprogram_declaration()?;
@@ -1302,7 +1358,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 if !self.tok_is(Semicolon) { break; }
                 self.advance_tok();
             }
-            //entity.generics = self.parse_interface_list()?;
+            entity.generics = generics;
             self.eat_expect(RParen)?;
             self.eat_expect(Semicolon)?;
         }
@@ -1337,6 +1393,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
         }
 
         self.eat_expect(End)?;
+
+        if self.tok_is(Entity) {
+            self.advance_tok();
+        }
 
         if self.tok_is(Ident) {
             self.advance_tok();

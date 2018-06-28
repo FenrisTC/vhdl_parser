@@ -118,3 +118,52 @@ fn test_subtype_indications() {
         assert!(parser.tok.kind == TokenKind::EoF);
     }
 }
+
+#[test]
+fn test_entity_declarations() {
+    let tests = [
+"\
+entity e is
+end entity;
+",
+"\
+entity test is
+generic(data_bits: natural := 8);
+port(i,c,b: bit; o: out bit_vector(31 downto 0));
+end entity;\
+",
+"\
+entity a is
+generic(type data_t; address: natural; procedure set_alarm(signal is_alarm: inout bit) is <>);
+end entity a;
+",
+"\
+entity weird is
+port(o: out std_logic_vector(31 downto 0) := std_logic_vector(
+        7 => 'x',
+        6 => '0',
+        5 downto 0 => 'w',
+        others => '-'));
+end entity;
+",
+
+    ];
+
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_entity_decl();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+}

@@ -239,6 +239,27 @@ pub enum DiscreteRange {
     Attribute(Name),
 }
 
+impl DiscreteRange {
+    pub fn try_from(expr: Expr) -> Option<DiscreteRange> {
+        match expr {
+            Expr {kind: ExprKind::Range(range), .. } => {
+                let range   = DiscreteRange::Range(range);
+                Some(range)
+            },
+            Expr {kind: ExprKind::SubtypeIndication(subtype), .. } => {
+                let range   = DiscreteRange::SubtypeIndication(subtype);
+                Some(range)
+            },
+            Expr {kind: ExprKind::Name(name), ..} => {
+                if !name.is_attribute() { return None; }
+                let range   = DiscreteRange::Attribute(name);
+                Some(range)
+            },
+            _=> None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BinOpExpr {
     pub lhs: Box<Expr>,
@@ -342,14 +363,12 @@ impl Expr {
     pub fn is_valid_choices(&self) -> bool {
         match self.kind {
             ExprKind::List(ref vec) => {
-                vec.iter().map(|e| match e.kind {
-                    ExprKind::Name(_) => true,
-                    ExprKind::Range(_) => true,
-                    _ => false,
-                }).fold(true, |acc, x| acc && x)
+                vec.iter().map(|e| e.is_valid_choices())
+                    .fold(true, |acc, x| acc && x)
             },
-            ExprKind::Range(_) => true,
-            ExprKind::Other    => true,
+            ExprKind::Range(_)  => true,
+            ExprKind::Other     => true,
+            ExprKind::NumLit(_) => true,
             _ => false,
         }
     }
@@ -357,6 +376,13 @@ impl Expr {
     pub fn is_name(&self) -> bool {
         match self.kind {
             ExprKind::Name(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_paren(&self) -> bool {
+        match self.kind {
+            ExprKind::Paren { .. } => true,
             _ => false,
         }
     }
@@ -416,6 +442,12 @@ pub enum SegmentKind {
     Identifier,
 }
 
+impl PartialEq<Self> for SegmentKind {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
 impl SegmentKind {
     pub fn unwrap_qualified_expr(self) -> Box<Expr> {
         match self {
@@ -454,10 +486,14 @@ impl Name {
     }
 
     pub fn is_attribute(&self) -> bool {
-        match self.segments.last() {
-            Some(NameSegment {pos: _, kind: SegmentKind::Attribute }) => true,
-            _ => false,
+        for segment in self.segments.iter().rev() {
+            match segment.kind {
+                SegmentKind::AttachedExpression(_) => continue,
+                SegmentKind::Attribute => return true,
+                _ => return false,
+            };
         }
+        false
     }
 
     pub fn is_simple(&self) -> bool {
@@ -468,6 +504,18 @@ impl Name {
         }
     }
 
+    pub fn is_selected(&self) -> bool {
+        self.segments.iter().map(|s| s.kind == SegmentKind::Identifier).fold(true, |acc, v| acc && v)
+    }
+
+    //
+    // Incomplete, Sure Future Bug: Array constraints might span multiple
+    // parenthesis and as such cover potentially the last *n* name segments.
+    // Currently we only convert the very last segment to a constraint.
+    // Ideally, if we pop constraints, we should be left with a selected name
+    // that make a valid typemark.
+    //      - Sebastian, 28.06.18
+    //
     pub fn pop_constraint(&mut self) -> Option<Constraint> {
         match self.segments.last() {
             Some(NameSegment {pos: _, kind: SegmentKind::AttachedExpression(_)}) => (),
@@ -477,7 +525,9 @@ impl Name {
         if let Some(NameSegment {pos: _, kind: SegmentKind::AttachedExpression(expr)}) = self.segments.last() {
             // Try to convert the expression to a valid segment constraint
 
-            Constraint::try_from(expr)
+            let element = ElementConstraint::try_from(*expr.clone());
+            element.map(|e| Constraint::Element { pos: e.pos(), constraint: Box::new(e) })
+
         } else {
             None
         }
@@ -522,6 +572,24 @@ impl ResolutionIndication {
         }
     }
 
+    pub fn try_from(expr: Expr) -> Option<ResolutionIndication> {
+        match expr {
+            Expr {kind: ExprKind::Name(name), .. } => {
+                Some(ResolutionIndication::Function(Box::new(name)))
+            },
+            Expr {kind: ExprKind::Paren {lvl, expr}, pos } => {
+                let res = ResolutionIndication::try_from(*expr);
+                if res.is_none() { return None; }
+                Some(ResolutionIndication::ArrayIndication {
+                    pos,
+                    lvl,
+                    resolution: Box::new(res.unwrap()),
+                })
+            },
+            _ => None,
+        }
+    }
+
     pub fn try_into_name(self) -> Option<Name> {
         match self {
             ResolutionIndication::Function(name) => Some(*name),
@@ -560,7 +628,45 @@ impl ElementConstraint {
             ElementConstraint::Record{pos, ..}    => pos.clone(),
         }
     }
+
+    fn try_from(expr: Expr) -> Option<ElementConstraint> {
+        if let Expr {pos, kind: ExprKind::Paren{lvl, expr}} = expr {
+            if lvl > 1 { return None; }
+            if let Some(range) = DiscreteRange::try_from(*expr.clone()) {
+                let element = ElementConstraint::Array {
+                    pos,
+                    constraints: vec![range],
+                    next: None,
+                };
+                return Some(element);
+            }
+
+            match *expr {
+                Expr {kind: ExprKind::List(exprs), .. } => {
+                    let mut constraints = Vec::<DiscreteRange>::new();
+                    for expr in exprs.iter() {
+                        let range = DiscreteRange::try_from(expr.clone());
+                        if range.is_none() {
+                            return None;
+                        }
+                        constraints.push(range.unwrap());
+                    }
+                    None
+                },
+                Expr {kind: ExprKind::Open, .. } => {
+                    let element = ElementConstraint::ArrayOpen { pos, next: None };
+                    Some(element)
+                },
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
 }
+
+
 
 #[derive(Debug, Clone)]
 pub enum Constraint {
@@ -574,33 +680,6 @@ impl Constraint {
             pos: pos,
             constraint: Box::new(range),
         }
-    }
-
-    fn try_from(_expr: &Expr) -> Option<Constraint> {
-        /*
-        let pos = expr.pos;
-        if let ExprKind::Paren{expr: expr, ..} = expr.kind {
-            if let ExprKind::Range(_) = expr.kind {
-                let constraint = Constraint::new_range(*expr.clone());
-                return Some(constraint);
-            }
-
-            if let ExprKind::Open = expr.kind {
-                return Some(Constraint::Open{pos});
-            }
-
-            if let ExprKind::List(exprs) = expr.kind {
-
-            }
-
-            None
-        } else {
-            None
-        }
-        */
-        unimplemented!();
-
-
     }
 
 }
@@ -647,7 +726,7 @@ pub enum Designator {
     OperatorSymbol(OperatorSymbol),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum InterfaceObjectClass {
     Constant,
     Signal,

@@ -36,7 +36,7 @@ pub enum ParseError {
     NoReturnInFunction,
     ReturnInProcedure,
     PurityInProcedure,
-    UnexpectedToken(token::Token, String),
+    UnexpectedToken(token::Token, String, Vec<token::TokenKind>),
     UnexpectedEoF,
     Internal,
 }
