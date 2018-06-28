@@ -6,12 +6,7 @@ use token::TokenKind::*;
 use lexer::{ScanInfo, ParseContext};
 use SrcPos;
 use {ParseError, PResult};
-use ast;
-use ast::{Expr, ExprKind, SegmentKind, Direction, Op, Name, Assoc, Signature};
-use ast::{QualifiedExpr, ResolutionIndication, DiscreteRange, Constraint, SubtypeIndication};
-use ast::{EntityDeclaration, PortDeclaration, Mode, AssocExpr, NameSegment, RangeExpr, NumericLit, StringLit, CharLit};
-use ast::{BinOpExpr, Identifier, ElementConstraint, GenericDeclaration, InterfaceSubprogramDeclaration, InterfacePackageDeclaration, InterfaceConstantDeclaration, Designator, OperatorSymbol, InterfaceSubprogramDefault, InterfaceObjectDeclaration, InterfaceSubprogramKind, InterfaceGenericMap, InterfaceObjectClass};
-//use ast::*;
+use ast::*;
 
 #[derive(Debug)]
 pub struct ParseInfo<'a> {
@@ -182,7 +177,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             if self.tok_is(EqGt) {
                 // Check if expr is valid as the lhs of the
                 // association and parse the rhs.
-                if !(expr.is_valid_choices() || expr.is_valid_formal_part()) {
+                if !(expr.is_valid_choices() || expr.is_valid_formal()) {
                     return self.malformed_expr_err();
                 }
 
@@ -278,7 +273,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
                 let typemark = self.parse_selected_name()?;
 
-                let constraint = if self.tok_is_one_of(&[Range, LParen]) {
+                let constraint = if self.tok_is_one_of(&[KwRange, LParen]) {
                     Some(Box::new(self.parse_constraint()?))
                 } else {
                     None
@@ -300,7 +295,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             //
             if expr.is_name() {
                 let mut name = expr.unwrap_name();
-                let constraint = if self.tok_is(Range) {
+                let constraint = if self.tok_is(KwRange) {
                     Some(Box::new(self.parse_constraint()?))
                 } else {
                     name.pop_constraint().map(|c| Box::new(c))
@@ -349,7 +344,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     #[allow(dead_code)]
-    fn parse_range(&mut self) -> PResult<ast::Range> {
+    fn parse_range(&mut self) -> PResult<Range> {
         let lhs = self.parse_expression()?;
 
         let mut is_attr = false;
@@ -360,7 +355,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         }
 
         if is_attr {
-            let range = ast::Range::Name(lhs.unwrap_name());
+            let range = Range::Name(lhs.unwrap_name());
             return Ok(range);
         }
 
@@ -368,7 +363,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return self.unexpected_tok();
         }
         let range = self.parse_range_expr_cont(lhs)?;
-        Ok(ast::Range::Expr(range))
+        Ok(Range::Expr(range))
     }
 
     fn parse_choices_cont(&mut self, start_expr: Expr) -> PResult<Expr> {
@@ -752,7 +747,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         break;
                     }
 
-                    if self.tok_is_one_of(&[Ident, Range]) {
+                    if self.tok_is_one_of(&[Ident, KwRange]) {
                         name.add_segment(NameSegment {
                             pos: self.pos(),
                             kind: SegmentKind::Attribute,
@@ -910,7 +905,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return Ok(DiscreteRange::Range(range));
         }
 
-        if self.tok_is(Range) {
+        if self.tok_is(KwRange) {
             if !lhs.is_name() {
                 return self.unexpected_tok();
             }
@@ -996,7 +991,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     fn parse_constraint(&mut self) -> PResult<Constraint> {
-        if self.tok_is(Range) {
+        if self.tok_is(KwRange) {
             self.advance_tok();
             let range = self.parse_range()?;
             return Ok(Constraint::new_range(range.pos(), range));
@@ -1024,7 +1019,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             }
         }
 
-        if self.tok_is_one_of(&[Range, LParen]) {
+        if self.tok_is_one_of(&[KwRange, LParen]) {
             let constraint = self.parse_constraint()?;
             subtype.constraint = Some(Box::new(constraint));
         }
@@ -1074,9 +1069,57 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     fn parse_interface_generic_map(&mut self) -> PResult<InterfaceGenericMap> {
-        // Incomplete: This might be a bit nasty, the subtype indication will
-        // probably screw things up royally.
-        unimplemented!();
+        debug_assert!(self.tok.kind == Generic);
+
+        let start = self.pos();
+        self.eat_expect(Generic)?;
+        self.eat_expect(Map)?;
+        self.eat_expect(LParen)?;
+
+        let map = if self.tok_is(KwDefault) {
+            self.advance_tok();
+            self.eat_expect(RParen)?;
+
+            InterfaceGenericMap::Default(start.to(&self.last_pos))
+        } else if self.tok_is(LtGt) {
+            self.advance_tok();
+            self.eat_expect(RParen)?;
+
+            InterfaceGenericMap::Box(start.to(&self.last_pos))
+        } else {
+            let mut mappings = Vec::<Expr>::default();
+            loop {
+                let lhs = self.parse_expr_superset_element()?;
+
+                if self.tok_is(EqGt) {
+                    if !lhs.is_valid_formal() {
+                        return self.err(ParseError::MalformedGenericMapFormal);
+                    }
+                    self.advance_tok();
+
+                    let rhs = self.parse_expr_superset_element()?;
+                    if !rhs.is_valid_actual() {
+                        return self.err(ParseError::MalformedGenericMapActual);
+                    }
+                    let pos = lhs.pos.to(&rhs.pos);
+                    let kind = ExprKind::Assoc(AssocExpr {
+                        choices:    Box::new(lhs),
+                        designator: Box::new(rhs),
+                    });
+                    mappings.push(Expr::new(pos, kind));
+                } else {
+                    mappings.push(lhs);
+                }
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+
+            self.eat_expect(RParen)?;
+            InterfaceGenericMap::Map{pos: start.to(&self.last_pos), mappings}
+        };
+
+        Ok(map)
     }
 
     fn parse_interface_object_declaration(&mut self) -> PResult<InterfaceObjectDeclaration> {

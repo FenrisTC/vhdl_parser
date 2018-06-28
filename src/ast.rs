@@ -373,6 +373,7 @@ impl Expr {
         }
     }
 
+
     pub fn is_name(&self) -> bool {
         match self.kind {
             ExprKind::Name(_) => true,
@@ -405,10 +406,20 @@ impl Expr {
         }
     }
 
-    pub fn is_valid_formal_part(&self) -> bool {
+    pub fn is_valid_formal(&self) -> bool {
         match self.without_parens().kind {
             ExprKind::Name(_) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_valid_actual(&self) -> bool {
+        match self.kind {
+            ExprKind::Range(_) |
+            ExprKind::List(_)  |
+            ExprKind::Other    |
+            ExprKind::Assoc(_) => false,
+            _ => true,
         }
     }
 
@@ -785,7 +796,7 @@ pub struct InterfaceSubprogramDeclaration {
 
 #[derive(Debug, Clone)]
 pub enum InterfaceGenericMap {
-    Map(SrcPos), // Incomplete: Implement geneneric_map_aspect!
+    Map{pos: SrcPos, mappings: Vec<Expr>}, // Incomplete: Implement geneneric_map_aspect!
     Box(SrcPos),
     Default(SrcPos),
 }
@@ -793,7 +804,7 @@ pub enum InterfaceGenericMap {
 impl InterfaceGenericMap {
     pub fn pos(&self) -> SrcPos {
         match self {
-            InterfaceGenericMap::Map(pos) => pos.clone(),
+            InterfaceGenericMap::Map{pos, ..} => pos.clone(),
             InterfaceGenericMap::Box(pos) => pos.clone(),
             InterfaceGenericMap::Default(pos) => pos.clone(),
         }
