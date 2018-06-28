@@ -1068,7 +1068,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(port)
     }
 
-    fn parse_interface_generic_map(&mut self) -> PResult<InterfaceGenericMap> {
+    pub fn parse_interface_generic_map(&mut self) -> PResult<InterfaceGenericMap> {
         debug_assert!(self.tok.kind == Generic);
 
         let start = self.pos();

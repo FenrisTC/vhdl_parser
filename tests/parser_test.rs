@@ -167,3 +167,35 @@ end entity;
         assert!(parser.tok.kind == TokenKind::EoF);
     }
 }
+
+#[test]
+fn test_generic_map() {
+    let tests = [
+        "generic map (complex_fixed_left =>
+complex_math_fixed_left,
+complex_fixed_right =>
+complex_math_fixed_right,
+complex_fixed_formal_pkg =>
+complex_math_fixed_formal_pkg)
+",
+    ];
+
+
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_interface_generic_map();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+}
