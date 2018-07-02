@@ -1345,6 +1345,133 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(decl)
     }
 
+    fn parse_type_decl(&mut self) -> PResult<TypeDecl> {
+        debug_assert!(self.tok.kind == Type);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) {
+            return self.unexpected_tok();
+        }
+
+        let typename = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        self.eat_expect(Is)?;
+
+        // Integer, Float or Physical type
+        if self.tok_is(KwRange) {
+            self.advance_tok();
+            let range = self.parse_range()?;
+            if self.tok_is(Units) {
+                self.advance_tok();
+                loop {
+                    if !self.tok_is(Semicolon) { break; }
+                    self.advance_tok();
+                }
+                return self.unexpected_tok();
+            } else {
+                self.eat_expect(Semicolon)?;
+                return Ok(TypeDecl {
+                    pos: start.to(&self.last_pos),
+                    typename,
+                    def: TypeDef::Number(Box::new(range)),
+                });
+                // return Int/Float decl
+            }
+        }
+        // Enumeration type
+        if self.tok_is(LParen) {
+            self.advance_tok();
+            let mut variants = Vec::<EnumVariant>::default();
+            loop {
+                if !self.tok_is_one_of(&[Ident, CharLiteral]) { return self.unexpected_tok(); }
+
+                variants.push(EnumVariant { pos: self.pos() });
+                self.advance_tok();
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+            self.eat_expect(RParen)?;
+            self.eat_expect(Semicolon)?;
+            return Ok(TypeDecl {
+                pos: start.to(&self.last_pos),
+                typename,
+                def: TypeDef::Enumeration(variants),
+            });
+        }
+        // Array type
+        if self.tok_is(Array) {
+            self.advance_tok();
+        }
+        // Record type
+        if self.tok_is(Record) {
+            self.advance_tok();
+            let mut elements = Vec::<(Vec<Identifier>, Box<SubtypeIndication>)>::default();
+            loop {
+                let mut idents = Vec::<Identifier>::default();
+                loop {
+                    if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                    idents.push(Identifier { pos: self.pos() });
+                    self.advance_tok();
+
+                    if !self.tok_is(Comma) { break; }
+                    self.advance_tok();
+                }
+                self.eat_expect(Colon)?;
+                let subtype = self.parse_subtype_indication()?;
+                elements.push((idents, Box::new(subtype)));
+                self.eat_expect(Semicolon)?;
+
+                if !self.tok_is(Ident) { break; }
+            }
+            self.eat_expect(End)?;
+            self.eat_expect(Record)?;
+            if self.tok_is(Ident) { // Incomplete: Check that ident matches typename!
+                self.advance_tok();
+            }
+            self.eat_expect(Semicolon)?;
+            return Ok(TypeDecl {
+                pos: start.to(&self.last_pos),
+                typename,
+                def: TypeDef::Record(elements),
+            });
+        }
+        // Access type
+        if self.tok_is(Access) {
+            self.advance_tok();
+            let subtype = self.parse_subtype_indication()?;
+            return Ok(TypeDecl {
+                pos: start.to(&self.last_pos),
+                typename,
+                def: TypeDef::Access(Box::new(subtype)),
+            });
+        }
+        // File type
+        if self.tok_is(File) {
+            self.advance_tok();
+            self.eat_expect(Of)?;
+            let filetype = Box::new(self.parse_selected_name()?);
+            return Ok(TypeDecl {
+                pos: start.to(&self.last_pos),
+                typename,
+                def: TypeDef::File(filetype),
+            });
+        }
+        // Protected type
+        if self.tok_is(Protected) {
+            self.advance_tok();
+        }
+
+        self.unexpected_tok()
+    }
+
+    pub fn parse_entity_decl_item(&mut self) -> PResult<EntityDeclItem> {
+        if self.tok_is(Type) { return Ok(EntityDeclItem::TypeDecl(self.parse_type_decl()?)); }
+        self.unexpected_tok()
+    }
+
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
         debug_assert!(self.kind() == Entity);
         let start = self.pos();

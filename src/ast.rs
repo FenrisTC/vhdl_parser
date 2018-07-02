@@ -710,11 +710,62 @@ pub struct Identifier {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct EnumVariant {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeDef {
+    Number(Box<Range>),
+    Enumeration(Vec<EnumVariant>),
+    Physical,
+    Array,
+    Record(Vec<(Vec<Identifier>, Box<SubtypeIndication>)>),
+    Access(Box<SubtypeIndication>),
+    File(Box<Name>),
+    Protected,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeDecl {
+    pub pos: SrcPos,
+    pub typename: Identifier,
+    pub def: TypeDef,
+}
+
+#[derive(Debug, Clone)]
+pub enum EntityDeclItem {
+    SubprogramDecl,
+    SubprogramBody,
+    SubprogramInst,
+    PackageDecl,
+    PackageBody,
+    PackageInst,
+    TypeDecl(TypeDecl),
+    SubtypeDecl,
+    ConstantDecl,
+    SignalDecl,
+    VariableDecl,
+    FileDecl,
+    AliasDecl,
+    AttributeDecl,
+    AttributeSpec,
+    DisconnectSpec,
+    UseClause,
+    GroupTemplateDecl,
+    GroupDecl,
+    PslPropDecl,
+    PslSeqDecl,
+    PslClkDecl,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct EntityDeclaration {
     pub pos: SrcPos,
     pub name: Identifier,
     pub generics: Vec<GenericDeclaration>,
     pub ports: Vec<PortDeclaration>,
+    pub decl_items: Vec<EntityDeclItem>,
 }
 
 #[derive(Debug, Clone, Default)]
