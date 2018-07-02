@@ -1365,11 +1365,44 @@ impl<'srcfile> ParseInfo<'srcfile> {
             let range = self.parse_range()?;
             if self.tok_is(Units) {
                 self.advance_tok();
+                if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                let primary = Identifier { pos: self.pos() };
+                self.advance_tok();
+
+
+                let mut secondaries = Vec::<SecondaryUnitDecl>::default();
                 loop {
-                    if !self.tok_is(Semicolon) { break; }
+                    if !self.tok_is(Ident) { return self.unexpected_tok(); }
+
+                    let ident = Identifier { pos: self.pos() };
                     self.advance_tok();
+
+                    self.eat_expect(Eq)?;
+
+                    let factor = if self.tok_is_one_of(&[NumDecLiteral, NumBaseLiteral]) {
+                        Some(AbstractLiteral { pos: self.pos() })
+                    } else { None };
+
+                    if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                    let unit = Identifier { pos: self.pos() };
+
+                    self.eat_expect(Semicolon)?;
+
+                    secondaries.push(SecondaryUnitDecl { ident, factor, unit });
+
+                    if !self.tok_is(Ident) { break; }
                 }
-                return self.unexpected_tok();
+                self.eat_expect(End)?;
+                self.eat_expect(Units)?;
+                if self.tok_is(Ident) { self.advance_tok(); } // Incomplete: Check name with typename
+                self.eat_expect(Semicolon)?;
+
+                let phys_def = PhysTypeDef { primary, secondaries };
+                return Ok(TypeDecl {
+                    pos: start.to(&self.last_pos),
+                    typename,
+                    def: TypeDef::Physical(Box::new(phys_def)),
+                });
             } else {
                 self.eat_expect(Semicolon)?;
                 return Ok(TypeDecl {
@@ -1377,7 +1410,6 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     typename,
                     def: TypeDef::Number(Box::new(range)),
                 });
-                // return Int/Float decl
             }
         }
         // Enumeration type
@@ -1404,6 +1436,76 @@ impl<'srcfile> ParseInfo<'srcfile> {
         // Array type
         if self.tok_is(Array) {
             self.advance_tok();
+
+            self.eat_expect(LParen)?;
+            let mut unbounded = Vec::<Name>::default();
+            let mut is_unbounded = false;
+            let mut constrained = Vec::<DiscreteRange>::default();
+            let mut is_constrained = false;
+
+            loop {
+                let expr = self.parse_expression()?;
+
+                if self.tok_is_one_of(&[To, Downto]) {
+                    if is_unbounded { return self.err(ParseError::MixedArrayDefinition); }
+                    let range = self.parse_range_expr_cont(expr)?;
+                    constrained.push(DiscreteRange::Range(range));
+                    is_constrained = true;
+                } else if self.tok_is(KwRange) {
+                    if is_constrained { return self.err(ParseError::MixedArrayDefinition); }
+                    if !expr.is_name() { return self.err(ParseError::MalformedArrayDefinition); }
+                    self.advance_tok();
+                    self.eat_expect(LtGt)?;
+                    let name = expr.unwrap_name();
+                    unbounded.push(name);
+                    is_unbounded = true;
+                } else {
+                    if is_unbounded { return self.err(ParseError::MixedArrayDefinition); }
+                    if !expr.is_name() { return self.unexpected_tok(); }
+                    let mut typemark = expr.unwrap_name();
+                    let pos = typemark.pos;
+                    let constraint = typemark.pop_constraint().map(|c| Box::new(c));
+
+                    let range = if typemark.is_attribute() {
+                        DiscreteRange::Attribute(typemark)
+                    } else {
+                        DiscreteRange::SubtypeIndication(SubtypeIndication {
+                            pos,
+                            typemark,
+                            resolution: None,
+                            constraint,
+                        })
+                    };
+                    constrained.push(range);
+                    is_constrained = true;
+                }
+
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+
+            self.eat_expect(Of)?;
+
+            let subtype = self.parse_subtype_indication()?;
+
+            self.eat_expect(Semicolon)?;
+            let array_def = if is_unbounded {
+                ArrayDef::Unbounded(unbounded)
+            } else {
+                debug_assert!(!is_constrained);
+                ArrayDef::Constraint(constrained)
+            };
+            let def = ArrayTypeDef {
+                def: array_def,
+                subtype,
+            };
+            return Ok(TypeDecl {
+                pos: start.to(&self.last_pos),
+                typename,
+                def: TypeDef::Array(Box::new(def)),
+            });
+
         }
         // Record type
         if self.tok_is(Record) {

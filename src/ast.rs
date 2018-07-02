@@ -704,6 +704,8 @@ pub struct SubtypeIndication {
     pub constraint: Option<Box<Constraint>>,
 }
 
+
+
 #[derive(Debug, Clone, Default)]
 pub struct Identifier {
     pub pos: SrcPos,
@@ -714,12 +716,42 @@ pub struct EnumVariant {
     pub pos: SrcPos,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AbstractLiteral {
+    pub pos: SrcPos,
+}
+
+#[derive (Debug, Clone)]
+pub struct SecondaryUnitDecl {
+    pub ident: Identifier,
+    pub factor: Option<AbstractLiteral>,
+    pub unit: Identifier,
+}
+
+#[derive(Debug, Clone)]
+pub struct PhysTypeDef {
+    pub primary: Identifier,
+    pub secondaries: Vec<SecondaryUnitDecl>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ArrayDef {
+    Unbounded(Vec<Name>),
+    Constraint(Vec<DiscreteRange>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ArrayTypeDef {
+    pub def: ArrayDef,
+    pub subtype: SubtypeIndication,
+}
+
 #[derive(Debug, Clone)]
 pub enum TypeDef {
     Number(Box<Range>),
     Enumeration(Vec<EnumVariant>),
-    Physical,
-    Array,
+    Physical(Box<PhysTypeDef>),
+    Array(Box<ArrayTypeDef>),
     Record(Vec<(Vec<Identifier>, Box<SubtypeIndication>)>),
     Access(Box<SubtypeIndication>),
     File(Box<Name>),

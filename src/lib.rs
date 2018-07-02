@@ -35,6 +35,8 @@ pub enum ParseError {
     MalformedDiscreteRange,
     MalformedGenericMapActual,
     MalformedGenericMapFormal,
+    MalformedArrayDefinition,
+    MixedArrayDefinition,
     NoReturnInFunction,
     ReturnInProcedure,
     PurityInProcedure,
