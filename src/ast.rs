@@ -192,6 +192,12 @@ impl Op {
 }
 
 #[derive(Debug, Clone)]
+pub struct UseClause {
+    pub pos: SrcPos,
+    pub uses: Vec<Name>,
+}
+
+#[derive(Debug, Clone)]
 pub struct NumericLit {
     pub pos: SrcPos,
 }
@@ -776,6 +782,21 @@ pub struct TypeDecl {
     pub def: TypeDef,
 }
 
+#[derive(Debug, Clone)]
+pub enum SignalList {
+    Signals(Vec<Name>),
+    Others,
+    All,
+}
+
+#[derive(Debug, Clone)]
+pub struct DisconnectSpec {
+    pub pos: SrcPos,
+    pub signal_list: SignalList,
+    pub typemark: Box<Name>,
+    pub time: Box<Expr>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ObjectDeclKind {
     Constant,
@@ -804,6 +825,56 @@ pub struct ObjectDecl {
 }
 
 #[derive(Debug, Clone)]
+pub enum EntityClass {
+    Entity,
+    Architecture,
+    Configuration,
+    Procedure,
+    Function,
+    Package,
+    Type,
+    Subtype,
+    Constant,
+    Signal,
+    Variable,
+    Component,
+    Literal,
+    Label,
+    Units,
+    Group,
+    File,
+    Property,
+    Sequence,
+}
+
+#[derive(Debug, Clone)]
+pub enum EntityClassEntry {
+    Boxed(EntityClass),
+    Unboxed(EntityClass),
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub template: Box<Name>,
+    pub constituents: Vec<Name>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupTemplateDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub entries: Vec<EntityClassEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub enum GroupingDecl {
+    Template(GroupTemplateDecl),
+    Group(GroupDecl),
+}
+
+#[derive(Debug, Clone)]
 pub enum EntityDeclItem {
     SubprogramDecl,
     SubprogramBody,
@@ -817,10 +888,10 @@ pub enum EntityDeclItem {
     AliasDecl,
     AttributeDecl,
     AttributeSpec,
-    DisconnectSpec,
-    UseClause,
+    DisconnectSpec(DisconnectSpec),
+    UseClause(UseClause),
     GroupTemplateDecl,
-    GroupDecl,
+    GroupingDecl(GroupingDecl),
     PslPropDecl,
     PslSeqDecl,
     PslClkDecl,

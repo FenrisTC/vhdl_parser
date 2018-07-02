@@ -1656,6 +1656,133 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
     }
 
+    pub fn parse_use_clause(&mut self) -> PResult<UseClause> {
+        debug_assert!(self.tok.kind == Use);
+        let start = self.pos();
+        self.advance_tok();
+
+        let mut uses = Vec::<Name>::default();
+        loop {
+            uses.push(self.parse_selected_name()?);
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        self.eat_expect(Semicolon)?;
+        let pos = start.to(&self.last_pos);
+
+        Ok(UseClause { pos, uses })
+    }
+
+    fn parse_disconnect_spec(&mut self) -> PResult<DisconnectSpec> {
+        debug_assert!(self.tok.kind == Disconnect);
+        let start = self.pos();
+        self.advance_tok();
+
+        let signal_list = if self.tok_is(Others) { SignalList::Others }
+        else if self.tok_is(All)                 { SignalList::All }
+        else if self.tok_is(Ident) {
+            let mut names = Vec::<Name>::default();
+            loop {
+                if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                names.push(self.parse_name()?);
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+            SignalList::Signals(names)
+        } else { return self.unexpected_tok(); };
+
+        self.eat_expect(Colon)?;
+        let typemark = Box::new(self.parse_name()?);
+
+        self.eat_expect(After)?;
+        let time = Box::new(self.parse_expression()?);
+
+        let pos = start.to(&self.last_pos);
+
+        Ok(DisconnectSpec { pos, signal_list, typemark, time, })
+    }
+
+    fn parse_grouping_decl(&mut self) -> PResult<GroupingDecl> {
+        debug_assert!(self.tok.kind == Group);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) { return self.unexpected_tok(); }
+        let ident = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        if !self.tok_is_one_of(&[Colon, Is]) { return self.unexpected_tok(); }
+        if self.tok_is(Colon) {
+            self.advance_tok();
+            let template = Box::new(self.parse_name()?);
+            let mut constituents = Vec::<Name>::default();
+            self.eat_expect(LParen)?;
+            loop {
+                constituents.push(self.parse_name()?);
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+            self.eat_expect(RParen)?;
+            self.eat_expect(Semicolon)?;
+
+            let pos = start.to(&self.last_pos);
+
+            return Ok(GroupingDecl::Group(GroupDecl { pos, ident, template, constituents, }));
+
+        } else {
+            self.eat_expect(Is)?;
+            self.eat_expect(LParen)?;
+            let mut entries = Vec::<EntityClassEntry>::default();
+            loop {
+                let entry = if self.tok_is(Entity) { EntityClass::Entity }
+                else if self.tok_is(Architecture)  { EntityClass::Architecture }
+                else if self.tok_is(Configuration) { EntityClass::Configuration }
+                else if self.tok_is(Procedure)     { EntityClass::Procedure }
+                else if self.tok_is(Function)      { EntityClass::Function }
+                else if self.tok_is(Package)       { EntityClass::Package }
+                else if self.tok_is(Type)          { EntityClass::Type }
+                else if self.tok_is(Subtype)       { EntityClass::Subtype }
+                else if self.tok_is(Constant)      { EntityClass::Constant }
+                else if self.tok_is(Signal)        { EntityClass::Signal }
+                else if self.tok_is(Variable)      { EntityClass::Variable }
+                else if self.tok_is(Component)     { EntityClass::Component }
+                else if self.tok_is(Literal)       { EntityClass::Literal }
+                else if self.tok_is(Label)         { EntityClass::Label }
+                else if self.tok_is(Units)         { EntityClass::Units }
+                else if self.tok_is(Group)         { EntityClass::Group }
+                else if self.tok_is(File)          { EntityClass::File }
+                else if self.tok_is(Property)      { EntityClass::Property }
+                else if self.tok_is(Sequence)      { EntityClass::Sequence }
+                else { return self.unexpected_tok(); };
+                self.advance_tok();
+
+                let entry = if self.tok_is(LtGt) {
+                    self.advance_tok();
+                    EntityClassEntry::Boxed(entry)
+                }
+                else {
+                    EntityClassEntry::Unboxed(entry)
+                };
+
+                entries.push(entry);
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+
+            self.eat_expect(RParen)?;
+            self.eat_expect(Semicolon)?;
+            let pos = start.to(&self.last_pos);
+
+            return Ok(GroupingDecl::Template(GroupTemplateDecl { pos, ident, entries, }));
+        }
+
+    }
+
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
         debug_assert!(self.kind() == Entity);
         let start = self.pos();
@@ -1751,12 +1878,19 @@ impl<'srcfile> ParseInfo<'srcfile> {
             else if self.tok_is_one_of(&[Signal, Constant, File, Shared]) {
                 entity.decl_items.push(EntityDeclItem::ObjectDecl(self.parse_object_decl()?));
             }
+            else if self.tok_is(Use) {
+                entity.decl_items.push(EntityDeclItem::UseClause(self.parse_use_clause()?));
+            }
+            else if self.tok_is(Disconnect) {
+                entity.decl_items.push(EntityDeclItem::DisconnectSpec(self.parse_disconnect_spec()?));
+            }
+            else if self.tok_is(Group) {
+                entity.decl_items.push(EntityDeclItem::GroupingDecl(self.parse_grouping_decl()?));
+            }
+            //else if self.tok_is(Attribute) { }
             //else if self.tok_is(Function)  { }
             //else if self.tok_is(Procedure) { }
             //else if self.tok_is(Alias)     { }
-            //else if self.tok_is(Use)       { }
-            //else if self.tok_is(Group)     { }
-            //else if self.tok_is(Disconnect){ }
             else {
                 while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
                 debug_assert!(self.tok.kind == Semicolon);
