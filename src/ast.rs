@@ -755,7 +755,18 @@ pub enum TypeDef {
     Record(Vec<(Vec<Identifier>, Box<SubtypeIndication>)>),
     Access(Box<SubtypeIndication>),
     File(Box<Name>),
-    Protected,
+    // Incomplete: We need to be able to parse
+    // Subprogram declarations & instantiation declarations,
+    // Attribute declarations and use clauses before we can parse
+    // protected declarations of any kind.
+    // Protected,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubtypeDecl {
+    pub pos: SrcPos,
+    pub typename: Identifier,
+    pub subtype: Box<SubtypeIndication>,
 }
 
 #[derive(Debug, Clone)]
@@ -763,6 +774,33 @@ pub struct TypeDecl {
     pub pos: SrcPos,
     pub typename: Identifier,
     pub def: TypeDef,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ObjectDeclKind {
+    Constant,
+    Signal,
+    File,
+    Variable,
+    Shared,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SignalKind {
+    Register,
+    Bus,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectDecl {
+    pub pos: SrcPos,
+    pub kind: ObjectDeclKind,
+    pub idents: Vec<Identifier>,
+    pub subtype: Box<SubtypeIndication>,
+    pub default: Option<Box<Expr>>,
+    pub signal_kind: Option<SignalKind>,
+    pub file_open_kind: Option<Box<Expr>>,
+    pub file_open_name: Option<Box<Name>>,
 }
 
 #[derive(Debug, Clone)]
@@ -774,11 +812,8 @@ pub enum EntityDeclItem {
     PackageBody,
     PackageInst,
     TypeDecl(TypeDecl),
-    SubtypeDecl,
-    ConstantDecl,
-    SignalDecl,
-    VariableDecl,
-    FileDecl,
+    SubtypeDecl(SubtypeDecl),
+    ObjectDecl(ObjectDecl),
     AliasDecl,
     AttributeDecl,
     AttributeSpec,

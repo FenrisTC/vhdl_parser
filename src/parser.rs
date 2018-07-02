@@ -1562,16 +1562,98 @@ impl<'srcfile> ParseInfo<'srcfile> {
             });
         }
         // Protected type
-        if self.tok_is(Protected) {
-            self.advance_tok();
-        }
+        // 
+        // if self.tok_is(Protected) {
+        //     self.advance_tok();
+        // }
 
         self.unexpected_tok()
     }
 
-    pub fn parse_entity_decl_item(&mut self) -> PResult<EntityDeclItem> {
-        if self.tok_is(Type) { return Ok(EntityDeclItem::TypeDecl(self.parse_type_decl()?)); }
-        self.unexpected_tok()
+    fn parse_subtype_decl(&mut self) -> PResult<SubtypeDecl> {
+        debug_assert!(self.tok.kind == Subtype);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) { return self.unexpected_tok(); }
+        let typename = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        let subtype = Box::new(self.parse_subtype_indication()?);
+        let pos = start.to(&subtype.pos);
+
+        Ok(SubtypeDecl { pos, typename, subtype, })
+    }
+
+    fn parse_object_decl(&mut self) -> PResult<ObjectDecl> {
+        let start = self.pos();
+        let kind = if self.tok_is(Constant) { ObjectDeclKind::Constant }
+            else if self.tok_is(Signal)     { ObjectDeclKind::Signal }
+            else if self.tok_is(Shared)     { ObjectDeclKind::Shared }
+            else if self.tok_is(Variable)   { ObjectDeclKind::Variable }
+            else if self.tok_is(File)       { ObjectDeclKind::File }
+            else { return self.unexpected_tok(); };
+        self.advance_tok();
+
+        if self.tok_is(Variable) { self.advance_tok(); }
+
+        let mut idents = Vec::<Identifier>::default();
+        loop {
+            if !self.tok_is(Ident) { return self.unexpected_tok(); }
+            idents.push(Identifier { pos: self.pos() });
+            self.advance_tok();
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        self.eat_expect(Colon)?;
+
+        let subtype = Box::new(self.parse_subtype_indication()?);
+
+        if self.tok_is_one_of(&[Open, Is]) {
+            let file_open_kind = if self.tok_is(Open) {
+                self.advance_tok();
+                Some(Box::new(self.parse_expression()?))
+            } else { None };
+
+            self.eat_expect(Is)?;
+
+            let file_open_name = Some(Box::new(self.parse_name()?));
+            self.eat_expect(Semicolon)?;
+            let pos = start.to(&self.last_pos);
+
+            return Ok(ObjectDecl {
+                pos, kind, idents, subtype,
+                default: None, signal_kind: None,
+                file_open_kind, file_open_name
+            });
+
+        }
+
+        let signal_kind = if self.tok_is_one_of(&[Register, Bus]) {
+            if kind != ObjectDeclKind::Signal { return self.err(ParseError::SignalKindInNonSignalDecl); }
+            let signal_kind = if self.tok_is(Register) { SignalKind::Register }
+                else if self.tok_is(Bus)               { SignalKind::Bus }
+                else { unreachable!(); };
+            self.advance_tok();
+            Some(signal_kind)
+        } else { None };
+
+        let default = if self.tok_is(ColonEq) {
+            self.advance_tok();
+            Some(Box::new(self.parse_expression()?))
+        } else { None };
+
+
+        self.eat_expect(Semicolon)?;
+        let pos = start.to(&self.last_pos);
+
+        Ok(ObjectDecl {
+            pos, kind, idents, subtype, default, signal_kind,
+            file_open_kind: None, file_open_name: None,
+        })
+
     }
 
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
@@ -1653,10 +1735,33 @@ impl<'srcfile> ParseInfo<'srcfile> {
         // Incomplete: The declarative part needs to be parsed as well.
         // (PSL statements are missing from this list)
         //     Sebastian 19.06.18
-        while self.tok_is_one_of(&[Function, Procedure, Package, Type, Subtype, Constant, Signal, Shared, File, Alias, Attribute, Disconnect, Use, Group]) {
-            while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
-            debug_assert!(self.kind() == Semicolon);
-            self.advance_tok();
+        let entity_decl_list = [Function, Procedure,
+            Package, Type, Subtype, Constant, Signal,
+            Shared, File, Alias, Attribute, Disconnect,
+            Use, Group
+        ];
+        while self.tok_is_one_of(&entity_decl_list) {
+
+            if self.tok_is(Type) {
+                entity.decl_items.push(EntityDeclItem::TypeDecl(self.parse_type_decl()?));
+            }
+            else if self.tok_is(Subtype) {
+                entity.decl_items.push(EntityDeclItem::SubtypeDecl(self.parse_subtype_decl()?));
+            }
+            else if self.tok_is_one_of(&[Signal, Constant, File, Shared]) {
+                entity.decl_items.push(EntityDeclItem::ObjectDecl(self.parse_object_decl()?));
+            }
+            //else if self.tok_is(Function)  { }
+            //else if self.tok_is(Procedure) { }
+            //else if self.tok_is(Alias)     { }
+            //else if self.tok_is(Use)       { }
+            //else if self.tok_is(Group)     { }
+            //else if self.tok_is(Disconnect){ }
+            else {
+                while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
+                debug_assert!(self.tok.kind == Semicolon);
+                self.advance_tok();
+            }
         }
 
         // Incomplete: Entity statement part needs to be parsed as well.

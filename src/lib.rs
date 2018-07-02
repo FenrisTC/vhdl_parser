@@ -1,3 +1,5 @@
+//#[macro_use]
+//extern crate bitflags;
 
 pub mod token;
 pub mod lexer;
@@ -37,6 +39,7 @@ pub enum ParseError {
     MalformedGenericMapFormal,
     MalformedArrayDefinition,
     MixedArrayDefinition,
+    SignalKindInNonSignalDecl,
     NoReturnInFunction,
     ReturnInProcedure,
     PurityInProcedure,
