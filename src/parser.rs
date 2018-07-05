@@ -457,8 +457,17 @@ impl<'srcfile> ParseInfo<'srcfile> {
         }
 
         if self.tok_is_one_of(&[NumDecLiteral, NumBaseLiteral]) {
-            //println!("Parse NumLit");
             self.advance_tok();
+            if self.tok_is(Ident) {
+                let lit  = Box::new(NumericLit { pos: start.to(&self.pos()) });
+                let unit = Box::new(self.parse_name()?);
+                let pos  = start.to(&unit.pos);
+                return Ok(Expr::new(pos, ExprKind::PhyLit(PhysicalLit {
+                    pos,
+                    lit,
+                    unit,
+                })));
+            }
             let range = start.to(&self.pos());
             return Ok(Expr::new(range, ExprKind::NumLit(NumericLit {
                 pos: range,
@@ -2223,6 +2232,33 @@ end units DISTANCE;",
         let mut ctx : ParseContext = test.into();
         let mut parser : ParseInfo = (&mut ctx).into();
         let ast_test = parser.parse_type_decl();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+}
+
+#[test]
+fn test_object_declarations() {
+    let tests = [
+        "constant TOLER: DISTANCE := 1.5 nm;",
+        "constant PI: REAL := 3.141592;",
+        "constant CYCLE_TIME: TIME := 100 ns;",
+        "constant Propagation_Delay: DELAY_LENGTH; -- A deferred constant.",
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_object_decl();
         if !ast_test.is_ok() {
             println!("Err: {:?}", ast_test);
         }
