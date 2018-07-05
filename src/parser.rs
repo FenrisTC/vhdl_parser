@@ -136,7 +136,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.expected.clear();
 
         self.last_pos = self.tok.pos;
-        let tok = self.scan.scan_token();
+
+        let mut tok = self.scan.scan_token();
+        while tok.kind == Comment { tok = self.scan.scan_token(); }
         self.tok = tok;
     }
 
