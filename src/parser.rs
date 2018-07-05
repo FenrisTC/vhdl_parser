@@ -690,6 +690,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             name.add_segment(segment);
 
             if !self.tok_is_one_of(&[Dot, Tick]) { break; }
+            if self.tok_is(Dot) { self.advance_tok(); }
         }
 
         Ok(name)
@@ -2251,6 +2252,18 @@ fn test_object_declarations() {
         "constant PI: REAL := 3.141592;",
         "constant CYCLE_TIME: TIME := 100 ns;",
         "constant Propagation_Delay: DELAY_LENGTH; -- A deferred constant.",
+        "signal S: STANDARD.BIT_VECTOR (1 to 10);",
+        "signal CLK1, CLK2: TIME;",
+        "signal OUTPUT: WIRED_OR MULTI_VALUED_LOGIC;",
+        "variable INDEX: INTEGER range 0 to 99 := 0;",
+        "variable COUNT: POSITIVE;",
+        "variable MEMORY: BIT_MATRIX (0 to 7, 0 to 1023);",
+        "shared variable Counter: SharedCounter;",
+        "shared variable addend, augend, result: ComplexNumber;",
+        "variable bit_stack: VariableSizeBitArray;",
+        "file F1: IntegerFile;",
+        "file F2: IntegerFile is \"test.dat\";",
+        "file F3: IntegerFile open WRITE_MODE is \"test.dat\";",
     ];
     for &test in tests.iter() {
         println!();
