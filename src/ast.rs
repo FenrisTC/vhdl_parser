@@ -202,6 +202,13 @@ pub struct NumericLit {
     pub pos: SrcPos,
 }
 
+#[derive(Debug, Clone)]
+pub struct PhysicalLit {
+    pub pos: SrcPos,
+    pub lit: Box<NumericLit>,
+    pub unit: Box<Name>,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct StringLit {
@@ -310,6 +317,7 @@ pub enum ExprKind {
     List(Vec<Expr>),
     Inertial(Box<Expr>),
     NumLit(NumericLit),
+    PhyLit(PhysicalLit),
     StrLit(StringLit),
     ChrLit(CharLit),
     SubtypeIndication(SubtypeIndication),

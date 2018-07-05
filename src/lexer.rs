@@ -191,6 +191,9 @@ impl<'a> ScanInfo<'a> {
                 Some('.') => {
                     self.advance_ch();
                     if self.next_ch.map_or(false, |c| can_start_integer(c)) {
+                        while self.next_ch.map_or(false, |c| is_integer(c)) {
+                            self.advance_ch();
+                        }
                         return make_tok(start, self.byte_index, NumDecLiteral);
                     }
                     return make_tok(start, self.byte_index, EoF);
