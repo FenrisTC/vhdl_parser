@@ -1589,6 +1589,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if self.tok_is(Access) {
             self.advance_tok();
             let subtype = self.parse_subtype_indication()?;
+            self.eat_expect(Semicolon)?;
             return Ok(TypeDecl {
                 pos: start.to(&self.last_pos),
                 typename,
@@ -1600,6 +1601,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.advance_tok();
             self.eat_expect(Of)?;
             let filetype = Box::new(self.parse_selected_name()?);
+            self.eat_expect(Semicolon)?;
             return Ok(TypeDecl {
                 pos: start.to(&self.last_pos),
                 typename,
@@ -2204,10 +2206,13 @@ end units DISTANCE;",
     "type array_type is array (INTEGER range <>) of STRING'BASE;",
 "type DATE is
     record
-	DAY : INTEGER range 1 to 31;
-	MONTH : MONTH_NAME;
-	YEAR : INTEGER range 0 to 4000;
+        DAY : INTEGER range 1 to 31;
+        MONTH : MONTH_NAME;
+        YEAR : INTEGER range 0 to 4000;
     end record;",
+    "type FT is file of TM;",
+    "type ADDRESS is access MEMORY;",
+    "type BUFFER_PTR is access TEMP_BUFFER;",
     ];
 
 
