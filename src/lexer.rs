@@ -241,11 +241,11 @@ impl<'a> ScanInfo<'a> {
                 Some(x) if is_base_specifier(x) => return self.scan_bit_literal(start),
                 _  => (),
             }
-            if let Some('e') = self.next_ch {
+            if let Some('e') = self.next_ch.map(|c| c.to_ascii_lowercase()) {
                 self.advance_ch();
                 let c = self.next_ch;
                 if c == Some('+') || c == Some('-') { self.advance_ch(); }
-                if !self.ch_is(|c| can_start_integer(c)) {
+                if self.ch_is(|c| can_start_integer(c)) {
                     self.skip_while(|c| is_integer(c));
                 }
             }

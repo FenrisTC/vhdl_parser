@@ -662,10 +662,25 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 break;
             }
 
+            if self.tok_is(Tick) {
+                self.advance_tok(); // Eat '
+
+                if self.tok_is_one_of(&[Ident, KwRange]) {
+                    name.add_segment(NameSegment {
+                        pos: self.pos(),
+                        kind: SegmentKind::Attribute,
+                    });
+                    self.advance_tok();
+                    break;
+                }
+
+                return self.unexpected_tok();
+            }
+
             let segment = self.parse_name_prefix_segment()?;
             name.add_segment(segment);
 
-            if !self.tok_is(Dot) { break; }
+            if !self.tok_is_one_of(&[Dot, Tick]) { break; }
         }
 
         Ok(name)
@@ -1463,10 +1478,31 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     if is_constrained { return self.err(ParseError::MixedArrayDefinition); }
                     if !expr.is_name() { return self.err(ParseError::MalformedArrayDefinition); }
                     self.advance_tok();
-                    self.eat_expect(LtGt)?;
-                    let name = expr.unwrap_name();
-                    unbounded.push(name);
-                    is_unbounded = true;
+
+                    if self.tok_is(LtGt) {
+                        self.advance_tok();
+                        let name = expr.unwrap_name();
+                        unbounded.push(name);
+                        is_unbounded = true;
+                    } else {
+                        // Cleanup: this is a bit ugly, since we are already building subtype
+                        // indications 10 lines or so below.
+                        // Maybe we should group them together. But also, maybe not.
+
+                        let typemark = expr.unwrap_name();
+                        let constraint = Box::new(self.parse_range()?);
+                        let pos   = constraint.pos();
+                        let constraint = Some(Box::new(Constraint::Range { pos, constraint }));
+                        let pos   = typemark.pos.to(&pos);
+                        let range = DiscreteRange::SubtypeIndication(SubtypeIndication {
+                            pos,
+                            typemark,
+                            resolution: None,
+                            constraint,
+                        });
+                        constrained.push(range);
+                        is_constrained = true;
+                    }
                 } else {
                     if is_unbounded { return self.err(ParseError::MixedArrayDefinition); }
                     if !expr.is_name() { return self.unexpected_tok(); }
@@ -1492,6 +1528,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 if !self.tok_is(Comma) { break; }
                 self.advance_tok();
             }
+            self.eat_expect(RParen)?;
 
             self.eat_expect(Of)?;
 
@@ -1501,7 +1538,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             let array_def = if is_unbounded {
                 ArrayDef::Unbounded(unbounded)
             } else {
-                debug_assert!(!is_constrained);
+                debug_assert!(is_constrained);
                 ArrayDef::Constraint(constrained)
             };
             let def = ArrayTypeDef {
@@ -2155,8 +2192,16 @@ units
     fm = 6 ft;
     mi = 5280 ft;
     lg = 3 mi;
-end units DISTANCE;
-",
+end units DISTANCE;",
+    "type MY_WORD is array (0 to 31) of BIT;",
+    "type DATA_IN is array (7 downto 0) of FIVE_LEVEL_LOGIC;",
+    "type MEMORY is array (INTEGER range <>) of MY_WORD;",
+    "type SIGNED_FXPT_VECTOR is array (NATURAL range <>) of SIGNED_FXPT;",
+    "type SIGNED_FXPT_5x4 is array (1 to 5, 1 to 4) of SIGNED_FXPT;",
+    "type T is array (POSITIVE range MIN_BOUND to MAX_BOUND) of ELEMENT;",
+    "type array_type is array (index_subtype range <>) of ELEMENT'BASE;",
+    "type T is array (INTEGER range <>) of STRING(1 to 10);",
+    "type array_type is array (INTEGER range <>) of STRING'BASE;",
     ];
 
 
