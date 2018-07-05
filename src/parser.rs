@@ -1363,11 +1363,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if self.tok_is(KwRange) {
             self.advance_tok();
             let range = self.parse_range()?;
+
             if self.tok_is(Units) {
+                // This appears to be a physical type
                 self.advance_tok();
                 if !self.tok_is(Ident) { return self.unexpected_tok(); }
                 let primary = Identifier { pos: self.pos() };
                 self.advance_tok();
+                self.eat_expect(Semicolon)?;
 
 
                 let mut secondaries = Vec::<SecondaryUnitDecl>::default();
@@ -1380,11 +1383,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
                     self.eat_expect(Eq)?;
 
                     let factor = if self.tok_is_one_of(&[NumDecLiteral, NumBaseLiteral]) {
-                        Some(AbstractLiteral { pos: self.pos() })
+                        let pos = self.pos();
+                        self.advance_tok();
+                        Some(AbstractLiteral { pos })
                     } else { None };
 
                     if !self.tok_is(Ident) { return self.unexpected_tok(); }
                     let unit = Identifier { pos: self.pos() };
+                    self.advance_tok();
 
                     self.eat_expect(Semicolon)?;
 
@@ -2129,6 +2135,26 @@ units
     sec = 1000 ms; --second
     min = 60 sec; --minute
 end units;",
+"type DISTANCE is range 0 to 1E16
+units
+    -- primary unit:
+    Å;
+    -- metric lengths:
+    nm = 10 Å;
+    um = 1000 nm;
+    mm = 1000 um;
+    cm = 10 mm;
+    m = 1000 mm;
+    km = 1000 m;
+    mil = 254000 Å;
+    inch = 1000 mil;
+    ft = 12 inch;
+    yd = 3 ft;
+    fm = 6 ft;
+    mi = 5280 ft;
+    lg = 3 mi;
+end units DISTANCE;
+",
     ];
 
 
