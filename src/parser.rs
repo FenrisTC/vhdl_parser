@@ -2202,6 +2202,12 @@ end units DISTANCE;",
     "type array_type is array (index_subtype range <>) of ELEMENT'BASE;",
     "type T is array (INTEGER range <>) of STRING(1 to 10);",
     "type array_type is array (INTEGER range <>) of STRING'BASE;",
+"type DATE is
+    record
+	DAY : INTEGER range 1 to 31;
+	MONTH : MONTH_NAME;
+	YEAR : INTEGER range 0 to 4000;
+    end record;",
     ];
 
 
