@@ -1762,6 +1762,29 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(DisconnectSpec { pos, signal_list, typemark, time, })
     }
 
+    fn parse_entity_class(&mut self) -> PResult<EntityClass> {
+        if self.tok_is(Entity)             { Ok(EntityClass::Entity) }
+        else if self.tok_is(Architecture)  { Ok(EntityClass::Architecture) }
+        else if self.tok_is(Configuration) { Ok(EntityClass::Configuration) }
+        else if self.tok_is(Procedure)     { Ok(EntityClass::Procedure) }
+        else if self.tok_is(Function)      { Ok(EntityClass::Function) }
+        else if self.tok_is(Package)       { Ok(EntityClass::Package) }
+        else if self.tok_is(Type)          { Ok(EntityClass::Type) }
+        else if self.tok_is(Subtype)       { Ok(EntityClass::Subtype) }
+        else if self.tok_is(Constant)      { Ok(EntityClass::Constant) }
+        else if self.tok_is(Signal)        { Ok(EntityClass::Signal) }
+        else if self.tok_is(Variable)      { Ok(EntityClass::Variable) }
+        else if self.tok_is(Component)     { Ok(EntityClass::Component) }
+        else if self.tok_is(Literal)       { Ok(EntityClass::Literal) }
+        else if self.tok_is(Label)         { Ok(EntityClass::Label) }
+        else if self.tok_is(Units)         { Ok(EntityClass::Units) }
+        else if self.tok_is(Group)         { Ok(EntityClass::Group) }
+        else if self.tok_is(File)          { Ok(EntityClass::File) }
+        else if self.tok_is(Property)      { Ok(EntityClass::Property) }
+        else if self.tok_is(Sequence)      { Ok(EntityClass::Sequence) }
+        else { self.unexpected_tok() }
+    }
+
     fn parse_grouping_decl(&mut self) -> PResult<GroupingDecl> {
         debug_assert!(self.tok.kind == Group);
         let start = self.pos();
@@ -1795,26 +1818,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.eat_expect(LParen)?;
             let mut entries = Vec::<EntityClassEntry>::default();
             loop {
-                let entry = if self.tok_is(Entity) { EntityClass::Entity }
-                else if self.tok_is(Architecture)  { EntityClass::Architecture }
-                else if self.tok_is(Configuration) { EntityClass::Configuration }
-                else if self.tok_is(Procedure)     { EntityClass::Procedure }
-                else if self.tok_is(Function)      { EntityClass::Function }
-                else if self.tok_is(Package)       { EntityClass::Package }
-                else if self.tok_is(Type)          { EntityClass::Type }
-                else if self.tok_is(Subtype)       { EntityClass::Subtype }
-                else if self.tok_is(Constant)      { EntityClass::Constant }
-                else if self.tok_is(Signal)        { EntityClass::Signal }
-                else if self.tok_is(Variable)      { EntityClass::Variable }
-                else if self.tok_is(Component)     { EntityClass::Component }
-                else if self.tok_is(Literal)       { EntityClass::Literal }
-                else if self.tok_is(Label)         { EntityClass::Label }
-                else if self.tok_is(Units)         { EntityClass::Units }
-                else if self.tok_is(Group)         { EntityClass::Group }
-                else if self.tok_is(File)          { EntityClass::File }
-                else if self.tok_is(Property)      { EntityClass::Property }
-                else if self.tok_is(Sequence)      { EntityClass::Sequence }
-                else { return self.unexpected_tok(); };
+                let entry = self.parse_entity_class()?;
                 self.advance_tok();
 
                 let entry = if self.tok_is(LtGt) {
@@ -1838,6 +1842,76 @@ impl<'srcfile> ParseInfo<'srcfile> {
             return Ok(GroupingDecl::Template(GroupTemplateDecl { pos, ident, entries, }));
         }
 
+    }
+
+    fn parse_attribute_decl_or_spec(&mut self) -> PResult<AttributeSpecOrDecl> {
+        debug_assert!(self.tok.kind == Attribute);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) { return self.unexpected_tok(); }
+        let ident = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        if self.tok_is(Of) {
+            let designator = ident;
+            self.advance_tok();
+
+            let mut specification = Vec::<EntityDesignator>::default();
+            loop {
+                let designator = if self.tok_is(StringLiteral) {
+                    let src = self.scan.ctx.string_at_pos(&self.pos());
+                    if let Some(op) = Op::from_op_symbol(&src) {
+                        let pos = self.pos();
+                        self.advance_tok();
+                        EntityDesignator::Op(OperatorSymbol { pos, op })
+                    } else {
+                        return self.err(ParseError::InvalidOpSymbolString);
+                    }
+                } else if self.tok_is_one_of(&[CharLiteral, Ident, All, Others]) {
+                    let kind = self.kind();
+                    let pos = self.pos();
+                    self.advance_tok();
+                    match kind {
+                        CharLiteral => EntityDesignator::Char(CharLit { pos }),
+                        Ident       => EntityDesignator::Ident(Identifier { pos }),
+                        All         => EntityDesignator::All(pos),
+                        Others      => EntityDesignator::Others(pos),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    return self.unexpected_tok();
+                };
+
+                specification.push(designator);
+
+                match specification.last().unwrap() {
+                    EntityDesignator::All(_) |
+                    EntityDesignator::Others(_) => break,
+                    _ => (),
+                }
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+
+            self.eat_expect(Colon)?;
+            let class = self.parse_entity_class()?;
+            self.eat_expect(Is)?;
+            let expr = Box::new(self.parse_expression()?);
+            self.eat_expect(Semicolon)?;
+            let pos = start.to(&self.last_pos);
+
+            return Ok(AttributeSpecOrDecl::Spec(AttributeSpec { pos, designator, specification, class, expr }));
+
+        }
+        self.eat_expect(Colon)?;
+
+
+        let typemark = Box::new(self.parse_name()?);
+        let pos = start.to(&self.last_pos);
+
+        Ok(AttributeSpecOrDecl::Decl(AttributeDecl { pos, ident, typemark, }))
     }
 
     fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
@@ -1944,7 +2018,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
             else if self.tok_is(Group) {
                 entity.decl_items.push(EntityDeclItem::GroupingDecl(self.parse_grouping_decl()?));
             }
-            //else if self.tok_is(Attribute) { }
+            else if self.tok_is(Attribute) {
+                entity.decl_items.push(EntityDeclItem::Attribute(self.parse_attribute_decl_or_spec()?));
+            }
             //else if self.tok_is(Function)  { }
             //else if self.tok_is(Procedure) { }
             //else if self.tok_is(Alias)     { }
@@ -2282,4 +2358,29 @@ fn test_object_declarations() {
 
         assert!(parser.tok.kind == TokenKind::EoF);
     }
+}
+
+#[test]
+fn test_attribute_decl_or_spec() {
+    /*
+    let tests = [
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_attribute_decl_or_spec();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+    */
 }

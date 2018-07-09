@@ -735,7 +735,38 @@ pub struct AbstractLiteral {
     pub pos: SrcPos,
 }
 
-#[derive (Debug, Clone)]
+#[derive(Debug, Clone)]
+pub enum EntityDesignator {
+    Ident(Identifier),
+    Char(CharLit),
+    Op(OperatorSymbol),
+    All(SrcPos),
+    Others(SrcPos),
+}
+
+#[derive(Debug, Clone)]
+pub enum AttributeSpecOrDecl {
+    Decl(AttributeDecl),
+    Spec(AttributeSpec),
+}
+
+#[derive(Debug, Clone)]
+pub struct AttributeSpec {
+    pub pos: SrcPos,
+    pub designator: Identifier,
+    pub specification: Vec<EntityDesignator>,
+    pub class: EntityClass,
+    pub expr: Box<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AttributeDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub typemark: Box<Name>,
+}
+
+#[derive(Debug, Clone)]
 pub struct SecondaryUnitDecl {
     pub ident: Identifier,
     pub factor: Option<AbstractLiteral>,
@@ -894,11 +925,9 @@ pub enum EntityDeclItem {
     SubtypeDecl(SubtypeDecl),
     ObjectDecl(ObjectDecl),
     AliasDecl,
-    AttributeDecl,
-    AttributeSpec,
+    Attribute(AttributeSpecOrDecl),
     DisconnectSpec(DisconnectSpec),
     UseClause(UseClause),
-    GroupTemplateDecl,
     GroupingDecl(GroupingDecl),
     PslPropDecl,
     PslSeqDecl,
