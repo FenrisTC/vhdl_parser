@@ -9,6 +9,8 @@ use SrcPos;
 pub struct NodeId(u32);
 
 
+
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Assoc {
     Left,
@@ -61,7 +63,6 @@ pub enum Op {
     UnXor,//
     UnXnor,
 }
-
 
 impl Op {
     pub fn from_op_symbol(s: &str) -> Option<Op> {
@@ -189,35 +190,6 @@ impl Op {
         return Assoc::Left;
     }
 
-}
-
-#[derive(Debug, Clone)]
-pub struct UseClause {
-    pub pos: SrcPos,
-    pub uses: Vec<Name>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NumericLit {
-    pub pos: SrcPos,
-}
-
-#[derive(Debug, Clone)]
-pub struct PhysicalLit {
-    pub pos: SrcPos,
-    pub lit: Box<NumericLit>,
-    pub unit: Box<Name>,
-}
-
-
-#[derive(Debug, Clone)]
-pub struct StringLit {
-    pub pos: SrcPos,
-}
-
-#[derive(Debug, Clone)]
-pub struct CharLit {
-    pub pos: SrcPos,
 }
 
 #[derive(Debug, Clone)]
@@ -446,12 +418,9 @@ impl Expr {
 }
 
 
-#[derive(Debug, Clone, Default)]
-pub struct Signature {
-    pub pos: SrcPos,
-    pub parameter_typenames: Vec<Name>,
-    pub return_typename: Option<Name>,
-}
+
+
+
 
 #[derive(Debug, Clone)]
 pub enum SegmentKind {
@@ -558,6 +527,72 @@ impl Name {
         }
     }
 
+}
+
+
+
+
+
+
+#[derive(Debug, Clone)]
+pub struct NumericLit {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone)]
+pub struct PhysicalLit {
+    pub pos: SrcPos,
+    pub lit: Box<NumericLit>,
+    pub unit: Box<Name>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StringLit {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone)]
+pub struct CharLit {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Identifier {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AbstractLiteral {
+    pub pos: SrcPos,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EnumVariant {
+    pub pos: SrcPos,
+}
+
+
+
+
+#[derive(Debug, Clone)]
+pub struct UseClause {
+    pub pos: SrcPos,
+    pub uses: Vec<Name>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Signature {
+    pub pos: SrcPos,
+    pub parameter_typenames: Vec<Name>,
+    pub return_typename: Option<Name>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SubtypeIndication {
+    pub pos: SrcPos,
+    pub typemark: Name,
+    pub resolution: Option<ResolutionIndication>,
+    pub constraint: Option<Box<Constraint>>,
 }
 
 #[derive(Debug, Clone)]
@@ -709,32 +744,6 @@ impl Constraint {
 
 }
 
-
-#[derive(Debug, Clone, Default)]
-pub struct SubtypeIndication {
-    pub pos: SrcPos,
-    pub typemark: Name,
-    pub resolution: Option<ResolutionIndication>,
-    pub constraint: Option<Box<Constraint>>,
-}
-
-
-
-#[derive(Debug, Clone, Default)]
-pub struct Identifier {
-    pub pos: SrcPos,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct EnumVariant {
-    pub pos: SrcPos,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct AbstractLiteral {
-    pub pos: SrcPos,
-}
-
 #[derive(Debug, Clone)]
 pub enum EntityDesignator {
     Ident(Identifier),
@@ -742,12 +751,6 @@ pub enum EntityDesignator {
     Op(OperatorSymbol),
     All(SrcPos),
     Others(SrcPos),
-}
-
-#[derive(Debug, Clone)]
-pub enum AttributeSpecOrDecl {
-    Decl(AttributeDecl),
-    Spec(AttributeSpec),
 }
 
 #[derive(Debug, Clone)]
@@ -765,6 +768,13 @@ pub struct AttributeDecl {
     pub ident: Identifier,
     pub typemark: Box<Name>,
 }
+
+#[derive(Debug, Clone)]
+pub enum AttributeSpecOrDecl {
+    Decl(AttributeDecl),
+    Spec(AttributeSpec),
+}
+
 
 #[derive(Debug, Clone)]
 pub struct SecondaryUnitDecl {
@@ -808,17 +818,17 @@ pub enum TypeDef {
 }
 
 #[derive(Debug, Clone)]
-pub struct SubtypeDecl {
-    pub pos: SrcPos,
-    pub typename: Identifier,
-    pub subtype: Box<SubtypeIndication>,
-}
-
-#[derive(Debug, Clone)]
 pub struct TypeDecl {
     pub pos: SrcPos,
     pub typename: Identifier,
     pub def: TypeDef,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubtypeDecl {
+    pub pos: SrcPos,
+    pub typename: Identifier,
+    pub subtype: Box<SubtypeIndication>,
 }
 
 #[derive(Debug, Clone)]
@@ -914,6 +924,21 @@ pub enum GroupingDecl {
 }
 
 #[derive(Debug, Clone)]
+pub enum AliasDesignator {
+    Ident(Identifier),
+    CharLit(CharLit),
+    OpSymbol(OperatorSymbol),
+}
+
+#[derive(Debug, Clone)]
+pub struct AliasDecl {
+    pub pos: SrcPos,
+    pub designator: AliasDesignator,
+    pub subtype: Option<Box<SubtypeIndication>>,
+    pub name: Box<Name>,
+}
+
+#[derive(Debug, Clone)]
 pub enum EntityDeclItem {
     SubprogramDecl,
     SubprogramBody,
@@ -924,7 +949,7 @@ pub enum EntityDeclItem {
     TypeDecl(TypeDecl),
     SubtypeDecl(SubtypeDecl),
     ObjectDecl(ObjectDecl),
-    AliasDecl,
+    AliasDecl(AliasDecl),
     Attribute(AttributeSpecOrDecl),
     DisconnectSpec(DisconnectSpec),
     UseClause(UseClause),

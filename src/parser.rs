@@ -1914,6 +1914,46 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(AttributeSpecOrDecl::Decl(AttributeDecl { pos, ident, typemark, }))
     }
 
+    fn parse_alias_decl(&mut self) -> PResult<AliasDecl> {
+        debug_assert!(self.tok.kind == Alias);
+        let start = self.pos();
+        self.advance_tok();
+
+        let designator = if self.tok_is(Ident) {
+            AliasDesignator::Ident(Identifier { pos: self.pos() })
+        } else if self.tok_is(CharLiteral) {
+            AliasDesignator::CharLit(CharLit { pos: self.pos() })
+        } else if let Some(op) = Op::from_op_symbol(self.scan.ctx.text_from_pos(self.pos())) {
+            AliasDesignator::OpSymbol(OperatorSymbol { pos: self.pos(), op: op })
+        } else {
+            return self.unexpected_tok();
+        };
+        self.advance_tok();
+
+        let subtype = if self.tok_is(Colon) {
+            self.advance_tok();
+            Some(Box::new(self.parse_subtype_indication()?))
+        } else { None };
+
+        self.eat_expect(Is)?;
+
+        let name = Box::new(self.parse_name()?);
+        // Incomplete: Currently Name parsing automatically eats signatures.
+        // I'm not sure that signatures are actually allowed any time a name
+        // is used in the grammar; the VHDL standard is full of weird Inconsistencies
+        // like this. As the name of the thing the alias refers to however, a signature
+        // is explicitly allowed (!), so we maybe should store it explicitly as well?
+        // If/When we revamp name parsing, we should consider this.
+        //      Sebastian 09/07/18
+
+        self.eat_expect(Semicolon)?;
+        let pos = start.to(&self.last_pos);
+
+        Ok(AliasDecl { pos, designator, subtype, name })
+
+    }
+
+
     fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
         debug_assert!(self.kind() == Entity);
         let start = self.pos();
@@ -2021,9 +2061,11 @@ impl<'srcfile> ParseInfo<'srcfile> {
             else if self.tok_is(Attribute) {
                 entity.decl_items.push(EntityDeclItem::Attribute(self.parse_attribute_decl_or_spec()?));
             }
+            else if self.tok_is(Alias) {
+                entity.decl_items.push(EntityDeclItem::AliasDecl(self.parse_alias_decl()?));
+            }
             //else if self.tok_is(Function)  { }
             //else if self.tok_is(Procedure) { }
-            //else if self.tok_is(Alias)     { }
             else {
                 while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
                 debug_assert!(self.tok.kind == Semicolon);
