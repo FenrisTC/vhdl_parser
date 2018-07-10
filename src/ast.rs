@@ -940,9 +940,7 @@ pub struct AliasDecl {
 
 #[derive(Debug, Clone)]
 pub enum EntityDeclItem {
-    SubprogramDecl,
-    SubprogramBody,
-    SubprogramInst,
+    Subprogram(SubprogramDeclPart),
     PackageDecl,
     PackageBody,
     PackageInst,
@@ -988,6 +986,48 @@ pub enum Designator {
     OperatorSymbol(OperatorSymbol),
 }
 
+#[derive(Debug, Clone)]
+pub enum SubprogramKind {
+    Procedure,
+    Function{
+        is_pure: bool,
+        return_type: Box<Name>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct SubprogramSpec {
+    pub pos: SrcPos,
+    pub kind: SubprogramKind,
+    pub designator: Designator,
+    pub parameters: Vec<InterfaceObjectDeclaration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubprogramBody {
+    pub pos: SrcPos,
+    pub spec: Box<SubprogramSpec>,
+    //pub decls: Vec<SubprogramDeclItem>,
+    //pub stmts: Vec<SequentialStatement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubprogramInstDecl {
+    pub pos: SrcPos,
+    pub kind: SubprogramKind,
+    pub designator: Designator,
+    pub name: Box<Name>,
+    pub map: Option<Box<GenericMapAspect>>,
+}
+
+
+#[derive(Debug, Clone)]
+pub enum SubprogramDeclPart {
+    Decl(SubprogramSpec),
+    Body(SubprogramBody),
+    Inst(SubprogramInstDecl),
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum InterfaceObjectClass {
     Constant,
@@ -1028,36 +1068,34 @@ pub enum InterfaceSubprogramDefault {
 
 
 #[derive(Debug, Clone)]
-pub enum InterfaceSubprogramKind {
-    Procedure,
-    Function{
-        is_pure: bool,
-        return_type: Box<Name>,
-    },
-}
-
-#[derive(Debug, Clone)]
 pub struct InterfaceSubprogramDeclaration {
     pub pos: SrcPos,
-    pub kind: InterfaceSubprogramKind,
+    pub kind: SubprogramKind,
     pub designator: Designator,
     pub parameters: Vec<InterfaceObjectDeclaration>,
     pub default: Option<InterfaceSubprogramDefault>,
 }
 
 #[derive(Debug, Clone)]
-pub enum InterfaceGenericMap {
-    Map{pos: SrcPos, mappings: Vec<Expr>}, // Incomplete: Implement geneneric_map_aspect!
+pub struct GenericMapAspect {
+    pub pos: SrcPos,
+    pub elements: Vec<Expr>,
+}
+
+
+#[derive(Debug, Clone)]
+pub enum InterfacePackageGenericMap {
+    Map(GenericMapAspect), // Incomplete: Implement geneneric_map_aspect!
     Box(SrcPos),
     Default(SrcPos),
 }
 
-impl InterfaceGenericMap {
+impl InterfacePackageGenericMap {
     pub fn pos(&self) -> SrcPos {
         match self {
-            InterfaceGenericMap::Map{pos, ..} => pos.clone(),
-            InterfaceGenericMap::Box(pos) => pos.clone(),
-            InterfaceGenericMap::Default(pos) => pos.clone(),
+            InterfacePackageGenericMap::Map(ref map) => map.pos.clone(),
+            InterfacePackageGenericMap::Box(pos) => pos.clone(),
+            InterfacePackageGenericMap::Default(pos) => pos.clone(),
         }
     }
 }
@@ -1067,7 +1105,7 @@ pub struct InterfacePackageDeclaration {
     pub pos: SrcPos,
     pub name: Identifier,
     pub referred_pkg: Box<Name>,
-    pub map: InterfaceGenericMap,
+    pub map: InterfacePackageGenericMap,
 }
 
 #[derive(Debug, Clone)]

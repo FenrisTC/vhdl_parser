@@ -1054,6 +1054,95 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(subtype)
     }
 
+    fn parse_subprogram_decl_part(&mut self) -> PResult<SubprogramDeclPart> {
+        debug_assert!(self.tok.kind == Pure || self.tok.kind == Impure ||
+                      self.tok.kind == Procedure || self.tok.kind == Function);
+
+        let start = self.pos();
+        let is_pure = if self.tok_is(Pure) {
+            self.advance_tok();
+            Some(true)
+        } else if self.tok_is(Impure) {
+            self.advance_tok();
+            Some(false)
+        } else {
+            None
+        };
+
+        let is_function = if self.tok_is(Procedure) {
+            self.advance_tok();
+            false
+        } else if self.tok_is(Function) {
+            self.advance_tok();
+            true
+        } else {
+            return self.unexpected_tok();
+        };
+
+        let designator = if self.tok_is(Ident) {
+            Designator::Identifier(Identifier { pos: self.pos() })
+        } else if let Some(op) = Op::from_op_symbol(self.scan.ctx.text_from_pos(self.pos())) {
+            Designator::OperatorSymbol(OperatorSymbol { pos: self.pos(), op: op })
+        } else {
+            return self.unexpected_tok();
+        };
+        self.advance_tok();
+
+
+        let mut parameters = Vec::<InterfaceObjectDeclaration>::default();
+        if self.tok_is_one_of(&[LParen, Parameter]) {
+            if self.tok_is(Parameter) {
+                self.advance_tok();
+            }
+            self.eat_expect(LParen)?;
+            loop {
+                let object = self.parse_interface_object_declaration()?;;
+                parameters.push(object);
+
+                if !self.tok_is(Semicolon) { break; }
+                self.advance_tok();
+            }
+            self.eat_expect(RParen)?;
+        }
+
+        let return_type = if self.tok_is(Return) {
+            self.advance_tok();
+            if !self.tok_can_start_name() {
+                return self.unexpected_tok();
+            }
+            let name = self.parse_name()?;
+            Some(name)
+        } else {
+            None
+        };
+
+        let kind = if is_function {
+            if return_type.is_none() { return self.err(ParseError::NoReturnInFunction); }
+
+            SubprogramKind::Function {
+                is_pure: is_pure.unwrap_or(true),
+                return_type: Box::new(return_type.unwrap()),
+            }
+        } else {
+            if is_pure.is_some()     { return self.err(ParseError::PurityInProcedure); }
+            if return_type.is_some() { return self.err(ParseError::ReturnInProcedure); }
+            SubprogramKind::Procedure
+        };
+
+
+        if self.tok_is(Semicolon) {
+            self.advance_tok();
+            let pos = start.to(&self.last_pos);
+            let decl = SubprogramSpec { pos, kind, designator, parameters, };
+            return Ok(SubprogramDeclPart::Decl(decl));
+        }
+
+        self.eat_expect(Is)?;
+        unimplemented!("We still need to implement the subprogram body parsing. Make this a priority if when we know how to deal with declarations and when we can parse statements");
+
+    }
+
+
     fn parse_port_declaration(&mut self) -> PResult<PortDeclaration> {
         let port_start = self.pos();
         let mut port = PortDeclaration::default();
@@ -1095,7 +1184,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(port)
     }
 
-    fn parse_interface_generic_map(&mut self) -> PResult<InterfaceGenericMap> {
+    fn parse_interface_package_generic_map(&mut self) -> PResult<InterfacePackageGenericMap> {
         debug_assert!(self.tok.kind == Generic);
 
         let start = self.pos();
@@ -1107,14 +1196,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.advance_tok();
             self.eat_expect(RParen)?;
 
-            InterfaceGenericMap::Default(start.to(&self.last_pos))
+            InterfacePackageGenericMap::Default(start.to(&self.last_pos))
         } else if self.tok_is(LtGt) {
             self.advance_tok();
             self.eat_expect(RParen)?;
 
-            InterfaceGenericMap::Box(start.to(&self.last_pos))
+            InterfacePackageGenericMap::Box(start.to(&self.last_pos))
         } else {
-            let mut mappings = Vec::<Expr>::default();
+            let mut elements = Vec::<Expr>::default();
             loop {
                 let lhs = self.parse_expr_superset_element()?;
 
@@ -1133,9 +1222,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
                         choices:    Box::new(lhs),
                         designator: Box::new(rhs),
                     });
-                    mappings.push(Expr::new(pos, kind));
+                    elements.push(Expr::new(pos, kind));
                 } else {
-                    mappings.push(lhs);
+                    elements.push(lhs);
                 }
 
                 if !self.tok_is(Comma) { break; }
@@ -1143,7 +1232,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
             }
 
             self.eat_expect(RParen)?;
-            InterfaceGenericMap::Map{pos: start.to(&self.last_pos), mappings}
+            let pos = start.to(&self.last_pos);
+            let map = GenericMapAspect { pos, elements };
+            InterfacePackageGenericMap::Map(map)
         };
 
         Ok(map)
@@ -1219,7 +1310,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         let referred_pkg = self.parse_name()?;
 
-        let map = self.parse_interface_generic_map()?;
+        let map = self.parse_interface_package_generic_map()?;
 
         Ok(InterfacePackageDeclaration {
             pos: start.to(&map.pos()),
@@ -1228,7 +1319,6 @@ impl<'srcfile> ParseInfo<'srcfile> {
             map,
         })
     }
-
 
     fn parse_interface_subprogram_declaration(&mut self) -> PResult<InterfaceSubprogramDeclaration> {
         debug_assert!(self.tok.kind == Pure || self.tok.kind == Impure ||
@@ -1312,14 +1402,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
         let kind = if is_function {
             if return_type.is_none() { return self.err(ParseError::NoReturnInFunction); }
 
-            InterfaceSubprogramKind::Function {
+            SubprogramKind::Function {
                 is_pure: is_pure.unwrap_or(true),
                 return_type: Box::new(return_type.unwrap()),
             }
         } else {
             if is_pure.is_some()     { return self.err(ParseError::PurityInProcedure); }
             if return_type.is_some() { return self.err(ParseError::ReturnInProcedure); }
-            InterfaceSubprogramKind::Procedure
+            SubprogramKind::Procedure
         };
 
 
@@ -1762,7 +1852,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(DisconnectSpec { pos, signal_list, typemark, time, })
     }
 
-    fn parse_entity_class(&mut self) -> PResult<EntityClass> {
+    fn match_entity_class(&mut self) -> PResult<EntityClass> {
         if self.tok_is(Entity)             { Ok(EntityClass::Entity) }
         else if self.tok_is(Architecture)  { Ok(EntityClass::Architecture) }
         else if self.tok_is(Configuration) { Ok(EntityClass::Configuration) }
@@ -1818,7 +1908,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.eat_expect(LParen)?;
             let mut entries = Vec::<EntityClassEntry>::default();
             loop {
-                let entry = self.parse_entity_class()?;
+                let entry = self.match_entity_class()?;
                 self.advance_tok();
 
                 let entry = if self.tok_is(LtGt) {
@@ -1896,7 +1986,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
             }
 
             self.eat_expect(Colon)?;
-            let class = self.parse_entity_class()?;
+            let class = self.match_entity_class()?;
+            self.advance_tok();
             self.eat_expect(Is)?;
             let expr = Box::new(self.parse_expression()?);
             self.eat_expect(Semicolon)?;
@@ -1909,6 +2000,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
 
         let typemark = Box::new(self.parse_name()?);
+        self.eat_expect(Semicolon)?;
         let pos = start.to(&self.last_pos);
 
         Ok(AttributeSpecOrDecl::Decl(AttributeDecl { pos, ident, typemark, }))
@@ -2064,8 +2156,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
             else if self.tok_is(Alias) {
                 entity.decl_items.push(EntityDeclItem::AliasDecl(self.parse_alias_decl()?));
             }
-            //else if self.tok_is(Function)  { }
-            //else if self.tok_is(Procedure) { }
+            else if self.tok_is_one_of(&[Function, Procedure, Pure, Impure]) {
+                entity.decl_items.push(EntityDeclItem::Subprogram(self.parse_subprogram_decl_part()?));
+            }
             else {
                 while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
                 debug_assert!(self.tok.kind == Semicolon);
@@ -2273,7 +2366,7 @@ complex_math_fixed_formal_pkg)
 
         let mut ctx : ParseContext = test.into();
         let mut parser : ParseInfo = (&mut ctx).into();
-        let ast_test = parser.parse_interface_generic_map();
+        let ast_test = parser.parse_interface_package_generic_map();
         if !ast_test.is_ok() {
             println!("Err: {:?}", ast_test);
         }
@@ -2404,8 +2497,16 @@ fn test_object_declarations() {
 
 #[test]
 fn test_attribute_decl_or_spec() {
-    /*
     let tests = [
+        "attribute LOCATION: COORDINATE;",
+        "attribute PIN_NO: POSITIVE;",
+        "attribute PIN_NO of CIN: signal is 10;",
+        "attribute PIN_NO of COUT: signal is 5;",
+        "attribute LOCATION of ADDER1: label is (10,15);",
+        "attribute LOCATION of others: label is (25,77);",
+        "attribute CAPACITANCE of all: signal is 15 pF;",
+        "attribute IMPLEMENTATION of G1: group is \"74LS152\";",
+        "attribute RISING_DELAY of C2Q: group is 7.2 ns;",
     ];
     for &test in tests.iter() {
         println!();
@@ -2424,5 +2525,4 @@ fn test_attribute_decl_or_spec() {
 
         assert!(parser.tok.kind == TokenKind::EoF);
     }
-    */
 }
