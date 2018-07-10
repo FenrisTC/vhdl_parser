@@ -128,6 +128,21 @@ impl<'a> ParseInfo<'a> {
     fn tok_is_one_of(&mut self, kinds: &[TokenKind]) -> bool {
         kinds.contains(&self.kind())
     }
+
+    fn tok_can_start_name(&mut self) -> bool {
+        self.tok_is_one_of(&[LtLt, Ident, CharLiteral, StringLiteral])
+    }
+
+    fn tok_can_start_declaration(&mut self) -> bool {
+        // (PSL statements are missing from this list)
+        //     Sebastian 19.06.18
+        self.tok_is_one_of(&[Function, Procedure, Package, Type,
+            Subtype, Constant, Signal, Shared, File,
+            Alias, Attribute, Disconnect, Pure, Impure,
+            Configuration, Use, Group
+        ])
+    }
+
 }
 
 impl<'srcfile> ParseInfo<'srcfile> {
@@ -653,10 +668,6 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(segment)
     }
 
-    fn tok_can_start_name(&mut self) -> bool {
-        self.tok_is_one_of(&[LtLt, Ident, CharLiteral, StringLiteral])
-    }
-
     fn parse_selected_name(&mut self) -> PResult<Name> {
 
         let mut name = Name::default();
@@ -1133,8 +1144,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if self.tok_is(Semicolon) {
             self.advance_tok();
             let pos = start.to(&self.last_pos);
-            let decl = SubprogramSpec { pos, kind, designator, parameters, };
-            return Ok(SubprogramDeclPart::Decl(decl));
+            let spec = SubprogramSpec { pos, kind, designator, parameters, };
+            return Ok(SubprogramDeclPart::Decl(spec));
         }
 
         self.eat_expect(Is)?;
@@ -2045,6 +2056,42 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
     }
 
+    fn parse_declaration(&mut self) -> PResult<Declaration> {
+        let decl = if self.tok_is(Type) {
+            Declaration::Type(self.parse_type_decl()?)
+        }
+        else if self.tok_is(Subtype) {
+            Declaration::Subtype(self.parse_subtype_decl()?)
+        }
+        else if self.tok_is_one_of(&[Signal, Constant, File, Shared]) {
+            Declaration::Object(self.parse_object_decl()?)
+        }
+        else if self.tok_is(Use) {
+            Declaration::UseClause(self.parse_use_clause()?)
+        }
+        else if self.tok_is(Disconnect) {
+            Declaration::Disconnect(self.parse_disconnect_spec()?)
+        }
+        else if self.tok_is(Group) {
+            self.parse_grouping_decl()?.into()
+        }
+        else if self.tok_is(Attribute) {
+            self.parse_attribute_decl_or_spec()?.into()
+        }
+        else if self.tok_is(Alias) {
+            Declaration::Alias(self.parse_alias_decl()?)
+        }
+        else if self.tok_is_one_of(&[Function, Procedure, Pure, Impure]) {
+            self.parse_subprogram_decl_part()?.into()
+        }
+        else if self.tok_is(Package) {
+            unimplemented!();
+        }
+        else {
+            return self.unexpected_tok();
+        };
+        Ok(decl)
+    }
 
     fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
         debug_assert!(self.kind() == Entity);
@@ -2122,48 +2169,13 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.eat_expect(Semicolon)?;
         }
 
-        // Incomplete: The declarative part needs to be parsed as well.
-        // (PSL statements are missing from this list)
-        //     Sebastian 19.06.18
-        let entity_decl_list = [Function, Procedure,
-            Package, Type, Subtype, Constant, Signal,
-            Shared, File, Alias, Attribute, Disconnect,
-            Use, Group
-        ];
-        while self.tok_is_one_of(&entity_decl_list) {
+        while self.tok_can_start_declaration() {
 
-            if self.tok_is(Type) {
-                entity.decl_items.push(EntityDeclItem::TypeDecl(self.parse_type_decl()?));
+            let decl = self.parse_declaration()?;
+            if !decl.is_valid_for_entity_decl() {
+                return self.err(ParseError::InvalidDeclarationForEntity);
             }
-            else if self.tok_is(Subtype) {
-                entity.decl_items.push(EntityDeclItem::SubtypeDecl(self.parse_subtype_decl()?));
-            }
-            else if self.tok_is_one_of(&[Signal, Constant, File, Shared]) {
-                entity.decl_items.push(EntityDeclItem::ObjectDecl(self.parse_object_decl()?));
-            }
-            else if self.tok_is(Use) {
-                entity.decl_items.push(EntityDeclItem::UseClause(self.parse_use_clause()?));
-            }
-            else if self.tok_is(Disconnect) {
-                entity.decl_items.push(EntityDeclItem::DisconnectSpec(self.parse_disconnect_spec()?));
-            }
-            else if self.tok_is(Group) {
-                entity.decl_items.push(EntityDeclItem::GroupingDecl(self.parse_grouping_decl()?));
-            }
-            else if self.tok_is(Attribute) {
-                entity.decl_items.push(EntityDeclItem::Attribute(self.parse_attribute_decl_or_spec()?));
-            }
-            else if self.tok_is(Alias) {
-                entity.decl_items.push(EntityDeclItem::AliasDecl(self.parse_alias_decl()?));
-            }
-            else if self.tok_is_one_of(&[Function, Procedure, Pure, Impure]) {
-                entity.decl_items.push(EntityDeclItem::Subprogram(self.parse_subprogram_decl_part()?));
-            }
-            else {
-                while !self.tok_is_one_of(&[Semicolon, EoF]) { self.advance_tok(); }
-                debug_assert!(self.tok.kind == Semicolon);
-                self.advance_tok();
-            }
+            entity.decl_items.push(decl);
         }
 
         // Incomplete: Entity statement part needs to be parsed as well.

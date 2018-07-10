@@ -32,6 +32,7 @@ impl SrcPos {
 pub enum ParseError {
     ExprChoicesWithoutDesignator,
     InvalidOpSymbolString,
+    InvalidDeclarationForEntity,
     MalformedExpr,
     MalformedName,
     MalformedDiscreteRange,

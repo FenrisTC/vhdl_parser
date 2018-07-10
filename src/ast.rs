@@ -938,24 +938,68 @@ pub struct AliasDecl {
     pub name: Box<Name>,
 }
 
+
 #[derive(Debug, Clone)]
-pub enum EntityDeclItem {
-    Subprogram(SubprogramDeclPart),
-    PackageDecl,
+pub enum Declaration {
+    Alias(AliasDecl),
+    AttributeDecl(AttributeDecl),
+    AttributeSpec(AttributeSpec),
+    Configuration,
+    Disconnect(DisconnectSpec),
+    GroupDecl(GroupDecl),
+    GroupTemplateDecl(GroupTemplateDecl),
+    Object(ObjectDecl),
     PackageBody,
+    PackageDecl,
     PackageInst,
-    TypeDecl(TypeDecl),
-    SubtypeDecl(SubtypeDecl),
-    ObjectDecl(ObjectDecl),
-    AliasDecl(AliasDecl),
-    Attribute(AttributeSpecOrDecl),
-    DisconnectSpec(DisconnectSpec),
-    UseClause(UseClause),
-    GroupingDecl(GroupingDecl),
+    PslClkDecl,
     PslPropDecl,
     PslSeqDecl,
-    PslClkDecl,
+    SubprogramBody(SubprogramBody),
+    SubprogramDecl(SubprogramSpec),
+    SubprogramInst(SubprogramInstDecl),
+    Subtype(SubtypeDecl),
+    Type(TypeDecl),
+    UseClause(UseClause),
 }
+
+impl From<SubprogramDeclPart> for Declaration {
+    fn from(t: SubprogramDeclPart) -> Declaration {
+        match t {
+            SubprogramDeclPart::Decl(d) => Declaration::SubprogramDecl(d),
+            SubprogramDeclPart::Body(b) => Declaration::SubprogramBody(b),
+            SubprogramDeclPart::Inst(i) => Declaration::SubprogramInst(i),
+        }
+    }
+}
+
+impl From<AttributeSpecOrDecl> for Declaration {
+    fn from(t: AttributeSpecOrDecl) -> Declaration {
+        match t {
+            AttributeSpecOrDecl::Decl(d) => Declaration::AttributeDecl(d),
+            AttributeSpecOrDecl::Spec(s) => Declaration::AttributeSpec(s),
+        }
+    }
+}
+
+impl From<GroupingDecl> for Declaration {
+    fn from(t: GroupingDecl) -> Declaration {
+        match t {
+            GroupingDecl::Template(g) => Declaration::GroupTemplateDecl(g),
+            GroupingDecl::Group(g)    => Declaration::GroupDecl(g),
+        }
+    }
+}
+
+impl Declaration {
+    pub fn is_valid_for_entity_decl(&self) -> bool {
+        match self {
+            Declaration::Configuration => false,
+            _ => true,
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Default)]
 pub struct EntityDeclaration {
@@ -963,7 +1007,7 @@ pub struct EntityDeclaration {
     pub name: Identifier,
     pub generics: Vec<GenericDeclaration>,
     pub ports: Vec<PortDeclaration>,
-    pub decl_items: Vec<EntityDeclItem>,
+    pub decl_items: Vec<Declaration>,
 }
 
 #[derive(Debug, Clone, Default)]
