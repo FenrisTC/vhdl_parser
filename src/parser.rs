@@ -1099,6 +1099,30 @@ impl<'srcfile> ParseInfo<'srcfile> {
         };
         self.advance_tok();
 
+        if self.tok_is(Is) {
+            self.advance_tok();
+            self.eat_expect(New)?;
+            // Refactor: Refer to name parsing question in parse_alias_decl wrt. signature
+            // parsing.
+            let name = Box::new(self.parse_name()?);
+            self.eat_expect(Generic)?;
+            self.eat_expect(Map)?;
+            let generic_maps = self.parse_generic_map_list()?;
+            let pos = start.to(&self.last_pos);
+            return Ok(SubprogramDeclPart::Inst(SubprogramInstDecl { pos, designator, name, generic_maps }));
+        }
+
+        let (generics, generic_maps) = if self.tok_is(Generic) {
+            let generics = Some(self.parse_generic_list()?);
+            let maps = if self.tok_is(Generic) {
+                self.advance_tok();
+                self.eat_expect(Map)?;
+                Some(self.parse_generic_map_list()?)
+            } else { None };
+
+            (generics, maps)
+        } else { (None, None) };
+
 
         let mut parameters = Vec::<InterfaceObjectDeclaration>::default();
         if self.tok_is_one_of(&[LParen, Parameter]) {
@@ -1144,7 +1168,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if self.tok_is(Semicolon) {
             self.advance_tok();
             let pos = start.to(&self.last_pos);
-            let spec = SubprogramSpec { pos, kind, designator, parameters, };
+            let spec = SubprogramSpec { pos, kind, designator, generics, generic_maps, parameters, };
             return Ok(SubprogramDeclPart::Decl(spec));
         }
 
@@ -1195,54 +1219,62 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(port)
     }
 
+    fn parse_generic_map_list(&mut self) -> PResult<Vec<Expr>> {
+        debug_assert!(self.tok.kind == LParen);
+        self.advance_tok();
+        let mut elements = Vec::<Expr>::default();
+        loop {
+            let lhs = self.parse_expr_superset_element()?;
+
+            if self.tok_is(EqGt) {
+                if !lhs.is_valid_formal() {
+                    return self.err(ParseError::MalformedGenericMapFormal);
+                }
+                self.advance_tok();
+
+                let rhs = self.parse_expr_superset_element()?;
+                if !rhs.is_valid_actual() {
+                    return self.err(ParseError::MalformedGenericMapActual);
+                }
+                let pos = lhs.pos.to(&rhs.pos);
+                let kind = ExprKind::Assoc(AssocExpr {
+                    choices:    Box::new(lhs),
+                    designator: Box::new(rhs),
+                });
+                elements.push(Expr::new(pos, kind));
+            } else {
+                elements.push(lhs);
+            }
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+
+        self.eat_expect(RParen)?;
+        Ok(elements)
+    }
+
     fn parse_interface_package_generic_map(&mut self) -> PResult<InterfacePackageGenericMap> {
         debug_assert!(self.tok.kind == Generic);
 
         let start = self.pos();
         self.eat_expect(Generic)?;
         self.eat_expect(Map)?;
-        self.eat_expect(LParen)?;
 
         let map = if self.tok_is(KwDefault) {
+            self.eat_expect(LParen)?;
             self.advance_tok();
             self.eat_expect(RParen)?;
 
             InterfacePackageGenericMap::Default(start.to(&self.last_pos))
         } else if self.tok_is(LtGt) {
+            self.eat_expect(LParen)?;
             self.advance_tok();
             self.eat_expect(RParen)?;
 
             InterfacePackageGenericMap::Box(start.to(&self.last_pos))
         } else {
-            let mut elements = Vec::<Expr>::default();
-            loop {
-                let lhs = self.parse_expr_superset_element()?;
-
-                if self.tok_is(EqGt) {
-                    if !lhs.is_valid_formal() {
-                        return self.err(ParseError::MalformedGenericMapFormal);
-                    }
-                    self.advance_tok();
-
-                    let rhs = self.parse_expr_superset_element()?;
-                    if !rhs.is_valid_actual() {
-                        return self.err(ParseError::MalformedGenericMapActual);
-                    }
-                    let pos = lhs.pos.to(&rhs.pos);
-                    let kind = ExprKind::Assoc(AssocExpr {
-                        choices:    Box::new(lhs),
-                        designator: Box::new(rhs),
-                    });
-                    elements.push(Expr::new(pos, kind));
-                } else {
-                    elements.push(lhs);
-                }
-
-                if !self.tok_is(Comma) { break; }
-                self.advance_tok();
-            }
-
-            self.eat_expect(RParen)?;
+            let elements = self.parse_generic_map_list()?;
             let pos = start.to(&self.last_pos);
             let map = GenericMapAspect { pos, elements };
             InterfacePackageGenericMap::Map(map)
@@ -2041,7 +2073,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.eat_expect(Is)?;
 
         let name = Box::new(self.parse_name()?);
-        // Incomplete: Currently Name parsing automatically eats signatures.
+        // Refactor: Currently Name parsing automatically eats signatures.
         // I'm not sure that signatures are actually allowed any time a name
         // is used in the grammar; the VHDL standard is full of weird Inconsistencies
         // like this. As the name of the thing the alias refers to however, a signature
@@ -2093,6 +2125,44 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(decl)
     }
 
+    fn parse_generic_list(&mut self) -> PResult<Vec<GenericDeclaration>> {
+        debug_assert!(self.tok.kind == Generic);
+        self.advance_tok();
+        self.eat_expect(LParen)?;
+        let mut generics = Vec::<GenericDeclaration>::default();
+        loop {
+
+            if self.tok_is(Package) {
+                let package = self.parse_interface_package_declaration()?;
+                let generic = GenericDeclaration::Package(package);
+                generics.push(generic);
+            } else if self.tok_is(Type) {
+                self.advance_tok();
+                if !self.tok_is(Ident) {
+                    return self.unexpected_tok();
+                }
+                let generic = GenericDeclaration::Type(Identifier{pos: self.pos()});
+                self.advance_tok();
+                generics.push(generic);
+            } else if self.tok_is_one_of(&[Pure, Impure, Procedure, Function]) {
+                let proc = self.parse_interface_subprogram_declaration()?;
+                let generic = GenericDeclaration::Subprogram(proc);
+                generics.push(generic);
+            } else if self.tok_is_one_of(&[Ident, Constant]) {
+                let constant = self.parse_interface_constant_declaration()?;
+                let generic  = GenericDeclaration::Constant(constant);
+                generics.push(generic);
+            } else {
+                return self.unexpected_tok();
+            }
+
+            if !self.tok_is(Semicolon) { break; }
+            self.advance_tok();
+        }
+        self.eat_expect(RParen)?;
+        Ok(generics)
+    }
+
     fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {
         debug_assert!(self.kind() == Entity);
         let start = self.pos();
@@ -2117,40 +2187,8 @@ impl<'srcfile> ParseInfo<'srcfile> {
         //      | interface_subprogram_declaration
         //      | interface_package_declaration
         if self.tok_is(Generic) {
-            self.advance_tok();
-            self.eat_expect(LParen)?;
-            let mut generics = Vec::<GenericDeclaration>::default();
-            loop {
-
-                if self.tok_is(Package) {
-                    let package = self.parse_interface_package_declaration()?;
-                    let generic = GenericDeclaration::Package(package);
-                    generics.push(generic);
-                } else if self.tok_is(Type) {
-                    self.advance_tok();
-                    if !self.tok_is(Ident) {
-                        return self.unexpected_tok();
-                    }
-                    let generic = GenericDeclaration::Type(Identifier{pos: self.pos()});
-                    self.advance_tok();
-                    generics.push(generic);
-                } else if self.tok_is_one_of(&[Pure, Impure, Procedure, Function]) {
-                    let proc = self.parse_interface_subprogram_declaration()?;
-                    let generic = GenericDeclaration::Subprogram(proc);
-                    generics.push(generic);
-                } else if self.tok_is_one_of(&[Ident, Constant]) {
-                    let constant = self.parse_interface_constant_declaration()?;
-                    let generic  = GenericDeclaration::Constant(constant);
-                    generics.push(generic);
-                } else {
-                    return self.unexpected_tok();
-                }
-
-                if !self.tok_is(Semicolon) { break; }
-                self.advance_tok();
-            }
+            let generics = self.parse_generic_list()?;
             entity.generics = generics;
-            self.eat_expect(RParen)?;
             self.eat_expect(Semicolon)?;
         }
 

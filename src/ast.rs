@@ -1044,6 +1044,8 @@ pub struct SubprogramSpec {
     pub pos: SrcPos,
     pub kind: SubprogramKind,
     pub designator: Designator,
+    pub generics: Option<Vec<GenericDeclaration>>,
+    pub generic_maps: Option<Vec<Expr>>,
     pub parameters: Vec<InterfaceObjectDeclaration>,
 }
 
@@ -1058,10 +1060,9 @@ pub struct SubprogramBody {
 #[derive(Debug, Clone)]
 pub struct SubprogramInstDecl {
     pub pos: SrcPos,
-    pub kind: SubprogramKind,
     pub designator: Designator,
     pub name: Box<Name>,
-    pub map: Option<Box<GenericMapAspect>>,
+    pub generic_maps: Vec<Expr>,
 }
 
 
@@ -1070,6 +1071,30 @@ pub enum SubprogramDeclPart {
     Decl(SubprogramSpec),
     Body(SubprogramBody),
     Inst(SubprogramInstDecl),
+}
+
+#[derive(Debug, Clone)] 
+pub struct PackageDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub generics: Vec<GenericDeclaration>,
+    pub generic_maps: Vec<Expr>,
+    pub decls: Vec<Declaration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PackageBody {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub decls: Vec<Declaration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PackageInstDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub name: Box<Name>,
+    pub generic_maps: Vec<Expr>,
 }
 
 #[derive(Debug, Clone, Copy)]
