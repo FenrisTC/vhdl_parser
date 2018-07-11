@@ -2192,6 +2192,12 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.parse_subprogram_decl_part()?.into()
         }
         else if self.tok_is(Package) {
+            self.parse_packing_decl()?;
+        }
+        else if self.tok_is(Configuration) {
+            unimplemented!("Configurations seem to be a whole new mess, I currently don't fully understand. It depends on port maps and component, so do this afterwards");
+        }
+        else if self.tok_is(Component) {
             unimplemented!();
         }
         else {
