@@ -33,6 +33,8 @@ pub enum ParseError {
     ExprChoicesWithoutDesignator,
     InvalidOpSymbolString,
     InvalidDeclarationForEntity,
+    InvalidDeclarationForPackageBody,
+    InvalidDeclarationForPackageDecl,
     MalformedExpr,
     MalformedName,
     MalformedDiscreteRange,

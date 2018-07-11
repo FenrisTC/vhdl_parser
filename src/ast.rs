@@ -949,9 +949,9 @@ pub enum Declaration {
     GroupDecl(GroupDecl),
     GroupTemplateDecl(GroupTemplateDecl),
     Object(ObjectDecl),
-    PackageBody,
-    PackageDecl,
-    PackageInst,
+    PackageBody(PackageBody),
+    PackageDecl(PackageDecl),
+    PackageInst(PackageInstDecl),
     PslClkDecl,
     PslPropDecl,
     PslSeqDecl,
@@ -991,10 +991,32 @@ impl From<GroupingDecl> for Declaration {
     }
 }
 
+impl From<PackagingDecl> for Declaration {
+    fn from(t: PackagingDecl) -> Declaration {
+        match t {
+            PackagingDecl::Decl(d) => Declaration::PackageDecl(d),
+            PackagingDecl::Body(b) => Declaration::PackageBody(b),
+            PackagingDecl::Inst(i) => Declaration::PackageInst(i),
+        }
+    }
+}
+
 impl Declaration {
     pub fn is_valid_for_entity_decl(&self) -> bool {
         match self {
             Declaration::Configuration => false,
+            _ => true,
+        }
+    }
+
+    pub fn is_valid_for_package_body(&self) -> bool {
+        match self {
+            _ => true,
+        }
+    }
+
+    pub fn is_valid_for_package_decl(&self) -> bool {
+        match self {
             _ => true,
         }
     }
@@ -1077,8 +1099,8 @@ pub enum SubprogramDeclPart {
 pub struct PackageDecl {
     pub pos: SrcPos,
     pub ident: Identifier,
-    pub generics: Vec<GenericDeclaration>,
-    pub generic_maps: Vec<Expr>,
+    pub generics: Option<Vec<GenericDeclaration>>,
+    pub generic_maps: Option<Vec<Expr>>,
     pub decls: Vec<Declaration>,
 }
 
@@ -1095,6 +1117,13 @@ pub struct PackageInstDecl {
     pub ident: Identifier,
     pub name: Box<Name>,
     pub generic_maps: Vec<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PackagingDecl {
+    Decl(PackageDecl),
+    Body(PackageBody),
+    Inst(PackageInstDecl),
 }
 
 #[derive(Debug, Clone, Copy)]

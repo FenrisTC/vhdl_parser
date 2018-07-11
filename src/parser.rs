@@ -2088,6 +2088,81 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
     }
 
+    fn parse_packing_decl(&mut self) -> PResult<PackagingDecl> {
+        debug_assert!(self.tok.kind == Package);
+        let start = self.pos();
+        self.advance_tok();
+
+        if self.tok_is(Body) {
+            self.advance_tok();
+            if !self.tok_is(Ident) { return self.unexpected_tok(); }
+            let ident = Identifier { pos: self.pos() };
+            self.advance_tok();
+
+            self.eat_expect(Is)?;
+            let mut decls = Vec::<Declaration>::default();
+            while self.tok_can_start_declaration() {
+                let decl = self.parse_declaration()?;
+                if !decl.is_valid_for_package_body() { return self.err(ParseError::InvalidDeclarationForPackageBody); }
+                decls.push(decl);
+            }
+            self.eat_expect(End)?;
+            if self.tok_is(Package) {
+                self.advance_tok();
+                self.eat_expect(Body)?;
+            }
+            if self.tok_is(Ident) { self.advance_tok(); }
+            self.eat_expect(Semicolon)?;
+            let pos = start.to(&self.last_pos);
+            let body = PackageBody { pos, ident, decls };
+            return Ok(PackagingDecl::Body(body));
+        }
+
+        if !self.tok_is(Ident) { return self.unexpected_tok(); }
+        let ident = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        self.eat_expect(Is)?;
+
+        if self.tok_is(New) {
+            self.advance_tok();
+            let name = Box::new(self.parse_name()?);
+            let generic_maps = self.parse_generic_map_list()?;
+            self.eat_expect(Semicolon)?;
+            let pos = start.to(&self.last_pos);
+            let inst = PackageInstDecl { pos, ident, name, generic_maps };
+            return Ok(PackagingDecl::Inst(inst));
+        }
+
+        let (generics, generic_maps) = if self.tok_is(Generic) {
+            self.advance_tok();
+            let generics = Some(self.parse_generic_list()?);
+            let generic_maps = if self.tok_is(Generic) {
+                self.advance_tok();
+                self.eat_expect(Map)?;
+                Some(self.parse_generic_map_list()?)
+            } else { None };
+
+            (generics, generic_maps)
+        } else { (None, None) };
+
+        let mut decls = Vec::<Declaration>::default();
+        while self.tok_can_start_declaration() {
+            let decl = self.parse_declaration()?;
+            if !decl.is_valid_for_package_decl() { return self.err(ParseError::InvalidDeclarationForPackageDecl); }
+            decls.push(decl);
+        }
+        self.eat_expect(End)?;
+
+        if self.tok_is(Package) { self.advance_tok(); }
+        if self.tok_is(Ident)   { self.advance_tok(); }
+        self.eat_expect(Semicolon)?;
+
+        let pos = start.to(&self.last_pos);
+        let decl = PackageDecl { pos, ident, generics, generic_maps, decls };
+        Ok(PackagingDecl::Decl(decl))
+    }
+
     fn parse_declaration(&mut self) -> PResult<Declaration> {
         let decl = if self.tok_is(Type) {
             Declaration::Type(self.parse_type_decl()?)
