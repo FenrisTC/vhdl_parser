@@ -1107,7 +1107,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             let name = Box::new(self.parse_name()?);
             self.eat_expect(Generic)?;
             self.eat_expect(Map)?;
-            let generic_maps = self.parse_generic_map_list()?;
+            let generic_maps = self.parse_association_list()?;
             let pos = start.to(&self.last_pos);
             return Ok(SubprogramDeclPart::Inst(SubprogramInstDecl { pos, designator, name, generic_maps }));
         }
@@ -1117,7 +1117,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             let maps = if self.tok_is(Generic) {
                 self.advance_tok();
                 self.eat_expect(Map)?;
-                Some(self.parse_generic_map_list()?)
+                Some(self.parse_association_list()?)
             } else { None };
 
             (generics, maps)
@@ -1238,7 +1238,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(port)
     }
 
-    pub fn parse_generic_map_list(&mut self) -> PResult<Vec<Expr>> {
+    pub fn parse_association_list(&mut self) -> PResult<Vec<Expr>> {
         debug_assert!(self.tok.kind == LParen);
         self.advance_tok();
         let mut elements = Vec::<Expr>::default();
@@ -1293,7 +1293,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
             InterfacePackageGenericMap::Box(start.to(&self.last_pos))
         } else {
-            let elements = self.parse_generic_map_list()?;
+            let elements = self.parse_association_list()?;
             let pos = start.to(&self.last_pos);
             let map = GenericMapAspect { pos, elements };
             InterfacePackageGenericMap::Map(map)
@@ -2146,7 +2146,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if self.tok_is(New) {
             self.advance_tok();
             let name = Box::new(self.parse_name()?);
-            let generic_maps = self.parse_generic_map_list()?;
+            let generic_maps = self.parse_association_list()?;
             self.eat_expect(Semicolon)?;
             let pos = start.to(&self.last_pos);
             let inst = PackageInstDecl { pos, ident, name, generic_maps };
@@ -2159,7 +2159,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             let generic_maps = if self.tok_is(Generic) {
                 self.advance_tok();
                 self.eat_expect(Map)?;
-                Some(self.parse_generic_map_list()?)
+                Some(self.parse_association_list()?)
             } else { None };
 
             (generics, generic_maps)
@@ -2252,7 +2252,21 @@ impl<'srcfile> ParseInfo<'srcfile> {
             Some(EntityAspect{pos, name, arch, kind: EntityAspectKind::Entity })
         } else { None };
 
-        unimplemented!();
+        let generic_maps = if self.tok_is(Generic) {
+            self.advance_tok();
+            self.eat_expect(Map)?;
+            Some(self.parse_association_list()?)
+        } else { None };
+
+        let port_maps = if self.tok_is(Port) {
+            self.advance_tok();
+            self.eat_expect(Map)?;
+            Some(self.parse_association_list()?)
+        } else { None };
+        let aspect = aspect.map(|a| Box::new(a));
+
+        let pos = start.to(&self.last_pos);
+        Ok(BindingIndication { pos, aspect, generic_maps, port_maps })
     }
 
     fn parse_configuration_item(&mut self) -> PResult<ConfigurationItem> {
