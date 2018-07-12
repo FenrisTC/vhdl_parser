@@ -118,6 +118,7 @@ impl Token {
             "nor"           => Some(TokenKind::Nor),
             "abs"           => Some(TokenKind::Abs),
             "not"           => Some(TokenKind::Not),
+            "vunit"         => Some(TokenKind::Vunit),
             _               => None
         }
     }
@@ -310,4 +311,5 @@ pub enum TokenKind {
     // VHDL 2008
     Context,
     Parameter,
+    Vunit,
 }

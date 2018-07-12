@@ -527,6 +527,12 @@ impl Name {
         }
     }
 
+    pub fn unwrap_ident(mut self) -> Identifier {
+        if self.segments.len() != 1 { panic!(); }
+        let segment = self.segments.pop().unwrap();
+        if segment.kind != SegmentKind::Identifier { panic!(); }
+        Identifier { pos: segment.pos }
+    }
 }
 
 
@@ -946,7 +952,6 @@ pub struct ComponentDecl {
     pub ports: Option<Vec<PortDeclaration>>,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum Declaration {
     Alias(AliasDecl),
@@ -1027,6 +1032,15 @@ impl Declaration {
     pub fn is_valid_for_package_decl(&self) -> bool {
         match self {
             _ => true,
+        }
+    }
+
+    pub fn is_valid_for_configuration_decl(&self) -> bool {
+        match self {
+            Declaration::UseClause(_) |
+            Declaration::AttributeSpec(_) |
+            Declaration::GroupDecl(_) => true,
+            _ => false,
         }
     }
 }
@@ -1231,6 +1245,98 @@ pub struct PortDeclaration {
     pub subtype: SubtypeIndication,
     pub is_bus: bool,
     pub default_expr: Option<Box<Expr>>,
+}
+
+
+#[derive(Debug, Clone, Copy)]
+pub enum EntityAspectKind {
+    Entity,
+    Configuration,
+    Open,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntityAspect {
+    pub pos: SrcPos,
+    pub name: Option<Box<Name>>,
+    pub arch: Option<Identifier>,
+    pub kind: EntityAspectKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct BindingIndication {
+    pub pos: SrcPos,
+    pub aspect: Option<Box<EntityAspect>>,
+    pub generic_maps: Option<Vec<Expr>>,
+    pub port_maps: Option<Vec<Expr>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VUnitBindingIndication {
+    pub pos: SrcPos,
+    pub names: Vec<Name>,
+}
+
+#[derive(Debug, Clone)]
+pub enum InstantiationList {
+    Labels(Vec<Identifier>),
+    Others,
+    All,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentSpec {
+    pub pos: SrcPos,
+    pub inst: InstantiationList,
+    pub name: Box<Name>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentConfiguration {
+    pub pos: SrcPos,
+    pub spec: Box<ComponentSpec>,
+    pub bind: Option<Box<BindingIndication>>,
+    pub vunits: Option<Vec<VUnitBindingIndication>>,
+    pub block: Option<Box<BlockConfiguration>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockConfiguration {
+    pub pos: SrcPos,
+    pub block_spec: Box<Name>,
+    //
+    // block_specification ::=
+    //       architecture_name
+    //     | block_statement_label <-- Identifier
+    //     | generate_statement_label [ (generate_specification) ]
+    // generate_specification ::=
+    //       static_discrete_range
+    //     | static_expression
+    //     | alternative_label
+    //
+    // All of those reduce to a single name construct if we still allow
+    // to parse attached expressions as part of a name.
+    // If we change the way we parse names, this should be easy to explicitly
+    // make this name to a struct.
+    //
+    pub uses: Vec<UseClause>,
+    pub configs: Vec<ConfigurationItem>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConfigurationItem {
+    Block(BlockConfiguration),
+    Component(ComponentConfiguration),
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigurationDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub name: Box<Name>,
+    pub decls: Vec<Declaration>,
+    pub vunits: Vec<VUnitBindingIndication>,
+    pub block: Box<BlockConfiguration>,
 }
 
 #[derive(Debug, Clone)]

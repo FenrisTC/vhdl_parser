@@ -2208,6 +2208,229 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(ComponentDecl { pos, ident, generics, ports })
     }
 
+    fn parse_vunit_binding_indication(&mut self) -> PResult<VUnitBindingIndication> {
+        debug_assert!(self.tok.kind == Use);
+        let start = self.pos();
+        self.advance_tok();
+
+        self.eat_expect(Vunit)?;
+
+        let mut names = Vec::<Name>::default();
+        loop {
+            let name = self.parse_name()?;
+            names.push(name);
+
+            if !self.tok_is(Comma) { break; }
+            self.advance_tok();
+        }
+        let pos = start.to(&self.last_pos);
+        Ok(VUnitBindingIndication { pos, names })
+    }
+
+    fn parse_binding_indication(&mut self) -> PResult<BindingIndication> {
+        let start = self.pos();
+        let aspect = if self.tok_is(Open) {
+            self.advance_tok();
+            Some(EntityAspect { pos: start, name: None, arch: None, kind: EntityAspectKind::Open })
+        } else if self.tok_is(Configuration) {
+            self.advance_tok();
+            let name = Some(Box::new(self.parse_selected_name()?));
+            let pos = start.to(&self.last_pos);
+            Some(EntityAspect { pos, name, arch: None, kind: EntityAspectKind::Configuration })
+        } else if self.tok_is(Entity) {
+            self.advance_tok();
+            let name = Some(Box::new(self.parse_selected_name()?));
+            let arch = if self.tok_is(LParen) {
+                self.advance_tok();
+                if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                let ident = Identifier { pos: self.pos() };
+                self.advance_tok();
+                self.eat_expect(RParen)?;
+                Some(ident)
+            } else { None };
+            let pos = start.to(&self.last_pos);
+            Some(EntityAspect{pos, name, arch, kind: EntityAspectKind::Entity })
+        } else { None };
+
+        unimplemented!();
+    }
+
+    fn parse_configuration_item(&mut self) -> PResult<ConfigurationItem> {
+        debug_assert!(self.tok.kind == For);
+        let start = self.pos();
+        self.advance_tok();
+
+        //
+        // block_specification ::=
+        //       name
+        //     | label
+        //     | label ( generate_specification )
+        //
+        // comonent_specification ::=
+        //     Instantiation_list : component_name
+        //
+        // instantiation_list ::=
+        //       instantiation_label { , instantiation_label }
+        //     | others
+        //     | all
+        //
+
+        let name = if self.tok_is(Ident) {
+            let name = Box::new(self.parse_name()?);
+            if !self.tok_is_one_of(&[Comma, Colon]) {
+                let block_spec = name;
+                let mut uses = Vec::<UseClause>::default();
+                while self.tok_is(Use) {
+                    let use_clause = self.parse_use_clause()?;
+                    uses.push(use_clause);
+                }
+
+                let mut configs = Vec::<ConfigurationItem>::default();
+                while self.tok_is(For) {
+                    let config = self.parse_configuration_item()?;
+                    configs.push(config);
+                }
+
+                self.eat_expect(End)?;
+                self.eat_expect(For)?;
+                self.eat_expect(Semicolon)?;
+
+                let pos = start.to(&self.last_pos);
+
+                let block = BlockConfiguration { pos, block_spec, uses, configs };
+                return Ok(ConfigurationItem::Block(block));
+            }
+            Some(name)
+        } else { None };
+
+        let inst = if name.is_some() {
+            let name = *name.unwrap();
+            if !name.is_simple() { return self.unexpected_tok(); }
+            // Cleanup: Maybe we want to give a bit more context about what
+            // we actually try to parse.
+
+            let mut labels = Vec::<Identifier>::default();
+            labels.push(name.unwrap_ident());
+            while self.tok_is(Comma) {
+                if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                let ident = Identifier { pos: self.pos() };
+                self.advance_tok();
+                labels.push(ident);
+            }
+            InstantiationList::Labels(labels)
+        } else if self.tok_is(All) {
+            InstantiationList::All
+        } else if self.tok_is(Others) {
+            InstantiationList::Others
+        } else {
+            return self.unexpected_tok();
+        };
+
+        self.eat_expect(Colon)?;
+
+        let name = Box::new(self.parse_name()?);
+        let pos = start.to(&self.last_pos);
+
+        let spec = Box::new(ComponentSpec { pos, inst, name });
+
+        let bind = if self.tok_is(Use) {
+            let bind = self.parse_binding_indication()?;
+            self.eat_expect(Semicolon)?;
+            Some(Box::new(bind))
+        } else { None };
+
+        let mut vunits = Vec::<VUnitBindingIndication>::default();
+        while self.tok_is(Vunit) {
+            let vunit = self.parse_vunit_binding_indication()?;
+            self.eat_expect(Semicolon)?;
+            vunits.push(vunit);
+        }
+        let vunits = if !vunits.is_empty() { Some(vunits) } else { None };
+
+
+        let block = if self.tok_is(For) {
+            Some(Box::new(self.parse_block_configuration()?))
+        } else { None };
+
+        self.eat_expect(End)?;
+        self.eat_expect(For)?;
+        self.eat_expect(Semicolon)?;
+
+        let pos = start.to(&self.last_pos);
+        let component = ComponentConfiguration { pos, spec, bind, vunits, block };
+
+        Ok(ConfigurationItem::Component(component))
+    }
+
+    fn parse_block_configuration(&mut self) -> PResult<BlockConfiguration> {
+        let start = self.pos();
+        self.eat_expect(For)?;
+
+        let block_spec = Box::new(self.parse_name()?);
+
+        let mut uses = Vec::<UseClause>::default();
+        while self.tok_is(Use) {
+            let use_clause = self.parse_use_clause()?;
+            uses.push(use_clause);
+        }
+
+        let mut configs = Vec::<ConfigurationItem>::default();
+        while self.tok_is(For) {
+            let config = self.parse_configuration_item()?;
+            configs.push(config);
+        }
+        self.eat_expect(End)?;
+        self.eat_expect(For)?;
+        self.eat_expect(Semicolon)?;
+
+        let pos = start.to(&self.last_pos);
+
+        Ok(BlockConfiguration { pos, block_spec, uses, configs })
+    }
+
+    pub fn parse_configuration(&mut self) -> PResult<ConfigurationDecl> {
+        debug_assert!(self.tok.kind == Configuration);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) { return self.unexpected_tok(); }
+        let ident = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        self.eat_expect(Of)?;
+
+        let name = Box::new(self.parse_name()?);
+
+        self.eat_expect(Is)?;
+
+        let mut decls = Vec::<Declaration>::default();
+        while self.tok_can_start_declaration() {
+            let decl = self.parse_declaration()?;
+            if !decl.is_valid_for_configuration_decl() {
+                return self.err(ParseError::InvalidDeclarationForConfigurationDecl);
+            }
+            decls.push(decl);
+        }
+
+        let mut vunits = Vec::<VUnitBindingIndication>::default();
+        while self.tok_is(Use) {
+            let unit = self.parse_vunit_binding_indication()?;
+            self.eat_expect(Semicolon)?;
+            vunits.push(unit);
+        }
+
+        let block = Box::new(self.parse_block_configuration()?);
+
+        self.eat_expect(End)?;
+        if self.tok_is(Configuration) { self.advance_tok(); }
+        if self.tok_is(Ident)         { self.advance_tok(); }
+        self.eat_expect(Semicolon)?;
+
+        let pos = start.to(&self.last_pos);
+
+        Ok(ConfigurationDecl { pos, ident, name, decls, vunits, block })
+    }
+
     pub fn parse_declaration(&mut self) -> PResult<Declaration> {
         let decl = if self.tok_is(Type) {
             Declaration::Type(self.parse_type_decl()?)

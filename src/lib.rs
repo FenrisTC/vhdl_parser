@@ -35,6 +35,7 @@ pub enum ParseError {
     InvalidDeclarationForEntity,
     InvalidDeclarationForPackageBody,
     InvalidDeclarationForPackageDecl,
+    InvalidDeclarationForConfigurationDecl,
     MalformedExpr,
     MalformedName,
     MalformedDiscreteRange,
