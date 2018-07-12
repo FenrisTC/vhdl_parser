@@ -938,6 +938,14 @@ pub struct AliasDecl {
     pub name: Box<Name>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ComponentDecl {
+    pub pos: SrcPos,
+    pub ident: Identifier,
+    pub generics: Option<Vec<GenericDeclaration>>,
+    pub ports: Option<Vec<PortDeclaration>>,
+}
+
 
 #[derive(Debug, Clone)]
 pub enum Declaration {
@@ -945,6 +953,7 @@ pub enum Declaration {
     AttributeDecl(AttributeDecl),
     AttributeSpec(AttributeSpec),
     Configuration,
+    Component(ComponentDecl),
     Disconnect(DisconnectSpec),
     GroupDecl(GroupDecl),
     GroupTemplateDecl(GroupTemplateDecl),

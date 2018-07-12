@@ -1177,6 +1177,25 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
     }
 
+    pub fn parse_port_list(&mut self) -> PResult<Vec<PortDeclaration>> {
+        // port_clause ::= _port_ ( port_list );
+        // port_list   ::= interface_signal_declaration {; interface_signal_declaration}
+        let mut ports = Vec::<PortDeclaration>::default();
+        if self.tok_is(Port) {
+            self.advance_tok();
+            self.eat_expect(LParen)?;
+            loop {
+                let port = self.parse_port_declaration()?;
+                ports.push(port);
+                if !self.tok_is(Semicolon) { break; }
+                self.advance_tok();
+            }
+            self.eat_expect(RParen)?;
+            self.eat_expect(Semicolon)?;
+        }
+
+        Ok(ports)
+    }
 
     pub fn parse_port_declaration(&mut self) -> PResult<PortDeclaration> {
         let port_start = self.pos();
@@ -2163,6 +2182,32 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(PackagingDecl::Decl(decl))
     }
 
+    pub fn parse_component_decl(&mut self) -> PResult<ComponentDecl> {
+        debug_assert!(self.tok.kind == Component);
+        let start = self.pos();
+        self.advance_tok();
+
+        if !self.tok_is(Ident) { return self.unexpected_tok(); }
+        let ident = Identifier { pos: self.pos() };
+        self.advance_tok();
+
+        let generics = if self.tok_is(Generic) {
+            Some(self.parse_generic_list()?)
+        } else { None };
+
+        let ports = if self.tok_is(Port) {
+            Some(self.parse_port_list()?)
+        } else { None };
+
+        self.eat_expect(End)?;
+        self.eat_expect(Component)?;
+        if self.tok_is(Ident) { self.advance_tok(); }
+        self.eat_expect(Semicolon)?;
+        let pos = start.to(&self.last_pos);
+
+        Ok(ComponentDecl { pos, ident, generics, ports })
+    }
+
     pub fn parse_declaration(&mut self) -> PResult<Declaration> {
         let decl = if self.tok_is(Type) {
             Declaration::Type(self.parse_type_decl()?)
@@ -2192,13 +2237,13 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.parse_subprogram_decl_part()?.into()
         }
         else if self.tok_is(Package) {
-            self.parse_packing_decl()?;
+            self.parse_packing_decl()?.into()
         }
         else if self.tok_is(Configuration) {
             unimplemented!("Configurations seem to be a whole new mess, I currently don't fully understand. It depends on port maps and component, so do this afterwards");
         }
         else if self.tok_is(Component) {
-            unimplemented!();
+            Declaration::Component(self.parse_component_decl()?)
         }
         else {
             return self.unexpected_tok();
@@ -2273,20 +2318,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.eat_expect(Semicolon)?;
         }
 
-        // port_clause ::= _port_ ( port_list );
-        // port_list   ::= interface_signal_declaration {; interface_signal_declaration}
-        if self.tok_is(Port) {
-            self.advance_tok();
-            self.eat_expect(LParen)?;
-            loop {
-                let port = self.parse_port_declaration()?;
-                entity.ports.push(port);
-                if !self.tok_is(Semicolon) { break; }
-                self.advance_tok();
-            }
-            self.eat_expect(RParen)?;
-            self.eat_expect(Semicolon)?;
-        }
+        let ports = if self.tok_is(Port) {
+            Some(self.parse_port_list()?)
+        } else { None };
+        entity.ports = ports.unwrap_or(Vec::<PortDeclaration>::default());
 
         while self.tok_can_start_declaration() {
 
