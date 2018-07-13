@@ -2535,6 +2535,33 @@ impl<'srcfile> ParseInfo<'srcfile> {
         Ok(generics)
     }
 
+    fn parse_component_inst_cont(&mut self, kind: ComponentInstantiationKind, label: Identifier, name: Box<Name>, arch: Option<Identifier>) -> PResult<ConcurrentStatement> {
+        let start = label.pos;
+        let generic_maps = if self.tok_is(Generic) {
+            self.advance_tok();
+            self.eat_expect(Map)?;
+            Some(self.parse_association_list()?)
+        } else { None };
+
+        let port_maps = if self.tok_is(Port) {
+            self.advance_tok();
+            self.eat_expect(Map)?;
+            Some(self.parse_association_list()?)
+        } else { None };
+
+        let pos = start.to(&self.last_pos);
+
+        let stmt = ConcurrentStatementKind::Component(ComponentInstantiationStatement {
+            name, arch, kind, generic_maps, port_maps
+        });
+        let stmt = Box::new(stmt);
+
+
+        let label = Some(label);
+        let is_postponed = false;
+        return Ok(ConcurrentStatement { pos, label, is_postponed, stmt, });
+    }
+
     pub fn parse_concurrent_statement(&mut self) -> PResult<ConcurrentStatement> {
         let start = self.pos();
         let label = if self.tok_is(Ident) {
@@ -2555,25 +2582,91 @@ impl<'srcfile> ParseInfo<'srcfile> {
             true
         } else { false };
 
-        //
-        // This seems to be a recurring theme, but if we're here
-        // we can parse the actual parameter part seperetaly, since
-        // the procedure name can't contain parentheses.
-        // We probably should do so…
-        //     Sebastian, 13.07.18
-        //
-        // concurrent_procedure_call ::=
-        //     [label:] [_postponed_] procedure_name [(actual_parameter_part)]
-        let name = self.parse_name()?;
-        let name = Box::new(name);
+        if self.tok_is_one_of(&[Entity, Configuration]) { }
 
-        self.eat_expect(Semicolon)?;
+        if self.tok_is(Assert) {
+            if is_postponed { return self.err(ParseError::PostponedArrayStmt); }
+            self.advance_tok();
+            let condition = Box::new(self.parse_expression()?);
+            let report_expr = if self.tok_is(Report) {
+                self.advance_tok();
+                Some(Box::new(self.parse_expression()?))
+            } else { None };
+            let severity_expr = if self.tok_is(Severity) {
+                self.advance_tok();
+                Some(Box::new(self.parse_expression()?))
+            } else { None };
 
-        let stmt = ConcurrentStatementKind::Procedure(ProcedureCall { name });
-        let stmt = Box::new(stmt);
-        let pos = start.to(&self.last_pos);
+            let stmt = ConcurrentStatementKind::Assert(AssertStatement { condition, report_expr, severity_expr });
+            let stmt = Box::new(stmt);
+            let pos = start.to(&self.last_pos);
 
-        Ok(ConcurrentStatement { pos, label, is_postponed, stmt })
+            return Ok(ConcurrentStatement { pos, label, is_postponed, stmt });
+
+        } else if self.tok_is(Entity) {
+            self.advance_tok();
+            let name = Box::new(self.parse_selected_name()?);
+            let arch = if self.tok_is(LParen) {
+                self.advance_tok();
+                if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                let ident = Identifier { pos: self.pos() };
+                self.advance_tok();
+                self.eat_expect(RParen)?;
+                Some(ident)
+            } else { None };
+            if label.is_none() { return self.err(ParseError::NoLabelInComponentInst); }
+            if is_postponed    { return self.err(ParseError::PostponedComponentInst); }
+            return self.parse_component_inst_cont(ComponentInstantiationKind::Entity, label.unwrap(), name, arch);
+
+        } else if self.tok_is(Component) {
+            self.advance_tok();
+            let name = Box::new(self.parse_selected_name()?);
+            if label.is_none() { return self.err(ParseError::NoLabelInComponentInst); }
+            if is_postponed    { return self.err(ParseError::PostponedComponentInst); }
+            return self.parse_component_inst_cont(ComponentInstantiationKind::Component, label.unwrap(), name, None);
+
+        } else if self.tok_is(Configuration) {
+            self.advance_tok();
+            let name = Box::new(self.parse_selected_name()?);
+            if label.is_none() { return self.err(ParseError::NoLabelInComponentInst); }
+            if is_postponed    { return self.err(ParseError::PostponedComponentInst); }
+            return self.parse_component_inst_cont(ComponentInstantiationKind::Configuration, label.unwrap(), name, None);
+
+        } else if self.tok_is(Ident) {
+            //
+            // This seems to be a recurring theme, but if we're here
+            // we can parse the actual parameter part separately, since
+            // the procedure name can't contain parentheses.
+            // We probably should do so…
+            //     Sebastian, 13.07.18
+            //
+            // concurrent_procedure_call ::=
+            //     [label:] [_postponed_] procedure_name [(actual_parameter_part)]
+            let name = self.parse_name()?;
+            let name = Box::new(name);
+
+            //
+            // There is a ambiguity to a concurrent procedure call without
+            // parameters and with a label, if the component instantiation
+            // has neither generics nor ports. However, such a component seems
+            // to be a bit useless. For now we just happily assume this never
+            // happens.
+            //     Sebastian, 13.07.18
+            //
+            if self.tok_is_one_of(&[Generic, Port]) {
+                if label.is_none() { return self.err(ParseError::NoLabelInComponentInst); }
+                if is_postponed    { return self.err(ParseError::PostponedComponentInst); }
+                return self.parse_component_inst_cont(ComponentInstantiationKind::Component, label.unwrap(), name, None);
+            }
+            self.eat_expect(Semicolon)?;
+
+            let stmt = ConcurrentStatementKind::Procedure(ProcedureCall { name });
+            let stmt = Box::new(stmt);
+            let pos = start.to(&self.last_pos);
+
+            return Ok(ConcurrentStatement { pos, label, is_postponed, stmt });
+        }
+        unimplemented!();
     }
 
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {

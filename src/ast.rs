@@ -1373,8 +1373,33 @@ pub struct ProcedureCall {
 }
 
 #[derive(Debug, Clone)]
+pub struct AssertStatement {
+    pub condition: Box<Expr>,
+    pub report_expr: Option<Box<Expr>>,
+    pub severity_expr: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentInstantiationKind {
+    Component,
+    Entity,
+    Configuration
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentInstantiationStatement {
+    pub name: Box<Name>,
+    pub arch: Option<Identifier>,
+    pub kind: ComponentInstantiationKind,
+    pub generic_maps: Option<Vec<Expr>>,
+    pub port_maps: Option<Vec<Expr>>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ConcurrentStatementKind {
     Procedure(ProcedureCall),
+    Component(ComponentInstantiationStatement),
+    Assert(AssertStatement),
 }
 
 #[derive(Debug, Clone)]
