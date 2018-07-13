@@ -139,7 +139,7 @@ impl<'a> ParseInfo<'a> {
         self.tok_is_one_of(&[Function, Procedure, Package, Type,
             Subtype, Constant, Signal, Shared, File,
             Alias, Attribute, Disconnect, Pure, Impure,
-            Configuration, Use, Group
+            Configuration, Use, Group, Variable
         ])
     }
 
@@ -158,6 +158,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     fn eat_expect(&mut self, kind: TokenKind) -> PResult<()> {
+        self.expected.clear();
         if !self.tok_is(kind) {
             return self.unexpected_tok();
         }
@@ -609,29 +610,27 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         self.advance_tok(); // Eat [
 
-        loop {
-            if self.tok_is(RBracket) {
-                break;
-            } else if self.tok_is_one_of(&[Ident, CharLiteral, StringLiteral]) {
-                let name = self.parse_name()?;
-                signature.parameter_typenames.push(name);
-            } else if self.tok_is(Return) {
-                self.advance_tok(); // Eat return
+        if self.tok_is_one_of(&[Ident, CharLiteral, StringLiteral]) {
+            loop {
                 if !self.tok_is_one_of(&[Ident, CharLiteral, StringLiteral]) {
                     return self.unexpected_tok();
                 }
-                let name = self.parse_name()?;
-                signature.return_typename = Some(name);
-            } else {
-                return self.unexpected_tok();
+                signature.parameter_typenames.push(self.parse_name()?);
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
             }
         }
 
-        if !self.tok_is(RBracket) {
-            return self.unexpected_tok();
+        if self.tok_is(Return) {
+            self.advance_tok(); // Eat return
+            if !self.tok_is_one_of(&[Ident, CharLiteral, StringLiteral]) {
+                return self.unexpected_tok();
+            }
+            let name = self.parse_name()?;
+            signature.return_typename = Some(name);
         }
 
-        self.advance_tok(); // Eat ]
+        self.eat_expect(RBracket)?;
 
         signature.pos = signature.pos.to(&self.last_pos);
 
@@ -1108,6 +1107,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.eat_expect(Generic)?;
             self.eat_expect(Map)?;
             let generic_maps = self.parse_association_list()?;
+            self.eat_expect(Semicolon)?;
             let pos = start.to(&self.last_pos);
             return Ok(SubprogramDeclPart::Inst(SubprogramInstDecl { pos, designator, name, generic_maps }));
         }
@@ -1178,21 +1178,19 @@ impl<'srcfile> ParseInfo<'srcfile> {
     }
 
     pub fn parse_port_list(&mut self) -> PResult<Vec<PortDeclaration>> {
+        debug_assert!(self.tok.kind == Port);
         // port_clause ::= _port_ ( port_list );
         // port_list   ::= interface_signal_declaration {; interface_signal_declaration}
+        self.advance_tok();
+        self.eat_expect(LParen)?;
         let mut ports = Vec::<PortDeclaration>::default();
-        if self.tok_is(Port) {
+        loop {
+            let port = self.parse_port_declaration()?;
+            ports.push(port);
+            if !self.tok_is(Semicolon) { break; }
             self.advance_tok();
-            self.eat_expect(LParen)?;
-            loop {
-                let port = self.parse_port_declaration()?;
-                ports.push(port);
-                if !self.tok_is(Semicolon) { break; }
-                self.advance_tok();
-            }
-            self.eat_expect(RParen)?;
-            self.eat_expect(Semicolon)?;
         }
+        self.eat_expect(RParen)?;
 
         Ok(ports)
     }
@@ -2077,8 +2075,14 @@ impl<'srcfile> ParseInfo<'srcfile> {
             AliasDesignator::Ident(Identifier { pos: self.pos() })
         } else if self.tok_is(CharLiteral) {
             AliasDesignator::CharLit(CharLit { pos: self.pos() })
-        } else if let Some(op) = Op::from_op_symbol(self.scan.ctx.text_from_pos(self.pos())) {
-            AliasDesignator::OpSymbol(OperatorSymbol { pos: self.pos(), op: op })
+        } else if self.tok_is(StringLiteral) {
+            {
+            let op_txt = self.scan.ctx.text_from_pos(self.pos());
+            println!("{}", op_txt);
+            }
+            if let Some(op) = Op::from_op_symbol(self.scan.ctx.text_from_pos(self.pos())) {
+                AliasDesignator::OpSymbol(OperatorSymbol { pos: self.pos(), op: op })
+            } else { return self.err(ParseError::StringIsNotAnOpSymbol); }
         } else {
             return self.unexpected_tok();
         };
@@ -2146,7 +2150,11 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if self.tok_is(New) {
             self.advance_tok();
             let name = Box::new(self.parse_name()?);
-            let generic_maps = self.parse_association_list()?;
+            let generic_maps = if self.tok_is(Generic) {
+                self.advance_tok();
+                self.eat_expect(Map)?;
+                Some(self.parse_association_list()?)
+            } else { None };
             self.eat_expect(Semicolon)?;
             let pos = start.to(&self.last_pos);
             let inst = PackageInstDecl { pos, ident, name, generic_maps };
@@ -2190,13 +2198,18 @@ impl<'srcfile> ParseInfo<'srcfile> {
         if !self.tok_is(Ident) { return self.unexpected_tok(); }
         let ident = Identifier { pos: self.pos() };
         self.advance_tok();
+        self.eat_expect(Is)?;
 
         let generics = if self.tok_is(Generic) {
-            Some(self.parse_generic_list()?)
+            let generics = self.parse_generic_list()?;
+            self.eat_expect(Semicolon)?;
+            Some(generics)
         } else { None };
 
         let ports = if self.tok_is(Port) {
-            Some(self.parse_port_list()?)
+            let ports = self.parse_port_list()?;
+            self.eat_expect(Semicolon)?;
+            Some(ports)
         } else { None };
 
         self.eat_expect(End)?;
@@ -2229,27 +2242,30 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
     fn parse_binding_indication(&mut self) -> PResult<BindingIndication> {
         let start = self.pos();
-        let aspect = if self.tok_is(Open) {
+        let aspect = if self.tok_is(Use) {
             self.advance_tok();
-            Some(EntityAspect { pos: start, name: None, arch: None, kind: EntityAspectKind::Open })
-        } else if self.tok_is(Configuration) {
-            self.advance_tok();
-            let name = Some(Box::new(self.parse_selected_name()?));
-            let pos = start.to(&self.last_pos);
-            Some(EntityAspect { pos, name, arch: None, kind: EntityAspectKind::Configuration })
-        } else if self.tok_is(Entity) {
-            self.advance_tok();
-            let name = Some(Box::new(self.parse_selected_name()?));
-            let arch = if self.tok_is(LParen) {
+            if self.tok_is(Open) {
                 self.advance_tok();
-                if !self.tok_is(Ident) { return self.unexpected_tok(); }
-                let ident = Identifier { pos: self.pos() };
+                Some(EntityAspect { pos: start, name: None, arch: None, kind: EntityAspectKind::Open })
+            } else if self.tok_is(Configuration) {
                 self.advance_tok();
-                self.eat_expect(RParen)?;
-                Some(ident)
-            } else { None };
-            let pos = start.to(&self.last_pos);
-            Some(EntityAspect{pos, name, arch, kind: EntityAspectKind::Entity })
+                let name = Some(Box::new(self.parse_selected_name()?));
+                let pos = start.to(&self.last_pos);
+                Some(EntityAspect { pos, name, arch: None, kind: EntityAspectKind::Configuration })
+            } else if self.tok_is(Entity) {
+                self.advance_tok();
+                let name = Some(Box::new(self.parse_selected_name()?));
+                let arch = if self.tok_is(LParen) {
+                    self.advance_tok();
+                    if !self.tok_is(Ident) { return self.unexpected_tok(); }
+                    let ident = Identifier { pos: self.pos() };
+                    self.advance_tok();
+                    self.eat_expect(RParen)?;
+                    Some(ident)
+                } else { None };
+                let pos = start.to(&self.last_pos);
+                Some(EntityAspect{pos, name, arch, kind: EntityAspectKind::Entity })
+            } else { None }
         } else { None };
 
         let generic_maps = if self.tok_is(Generic) {
@@ -2275,6 +2291,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         self.advance_tok();
 
         //
+        // Look into ast.rs to get more info on the name parsing thing.
         // block_specification ::=
         //       name
         //     | label
@@ -2326,6 +2343,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             let mut labels = Vec::<Identifier>::default();
             labels.push(name.unwrap_ident());
             while self.tok_is(Comma) {
+                self.advance_tok();
                 if !self.tok_is(Ident) { return self.unexpected_tok(); }
                 let ident = Identifier { pos: self.pos() };
                 self.advance_tok();
@@ -2333,8 +2351,10 @@ impl<'srcfile> ParseInfo<'srcfile> {
             }
             InstantiationList::Labels(labels)
         } else if self.tok_is(All) {
+            self.advance_tok();
             InstantiationList::All
         } else if self.tok_is(Others) {
+            self.advance_tok();
             InstantiationList::Others
         } else {
             return self.unexpected_tok();
@@ -2452,7 +2472,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
         else if self.tok_is(Subtype) {
             Declaration::Subtype(self.parse_subtype_decl()?)
         }
-        else if self.tok_is_one_of(&[Signal, Constant, File, Shared]) {
+        else if self.tok_is_one_of(&[Signal, Constant, File, Shared, Variable]) {
             Declaration::Object(self.parse_object_decl()?)
         }
         else if self.tok_is(Use) {
@@ -2477,7 +2497,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             self.parse_packing_decl()?.into()
         }
         else if self.tok_is(Configuration) {
-            unimplemented!("Configurations seem to be a whole new mess, I currently don't fully understand. It depends on port maps and component, so do this afterwards");
+            Declaration::Configuration(self.parse_configuration()?)
         }
         else if self.tok_is(Component) {
             Declaration::Component(self.parse_component_decl()?)
@@ -2556,7 +2576,9 @@ impl<'srcfile> ParseInfo<'srcfile> {
         }
 
         let ports = if self.tok_is(Port) {
-            Some(self.parse_port_list()?)
+            let ports = self.parse_port_list()?;
+            self.eat_expect(Semicolon)?;
+            Some(ports)
         } else { None };
         entity.ports = ports.unwrap_or(Vec::<PortDeclaration>::default());
 
@@ -2576,20 +2598,11 @@ impl<'srcfile> ParseInfo<'srcfile> {
 
         self.eat_expect(End)?;
 
-        if self.tok_is(Entity) {
-            self.advance_tok();
-        }
+        if self.tok_is(Entity) { self.advance_tok(); }
+        if self.tok_is(Ident)  { self.advance_tok(); }
+        self.eat_expect(Semicolon)?;
 
-        if self.tok_is(Ident) {
-            self.advance_tok();
-        }
-
-        if !self.tok_is(Semicolon) {
-            return self.unexpected_tok();
-        }
-
-        entity.pos = start.to(&self.pos());
-        self.advance_tok();
+        entity.pos = start.to(&self.last_pos);
 
         Ok(entity)
     }

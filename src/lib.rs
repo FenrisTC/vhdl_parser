@@ -44,6 +44,7 @@ pub enum ParseError {
     MalformedArrayDefinition,
     MixedArrayDefinition,
     SignalKindInNonSignalDecl,
+    StringIsNotAnOpSymbol,
     NoReturnInFunction,
     ReturnInProcedure,
     PurityInProcedure,

@@ -335,3 +335,174 @@ fn test_attribute_decl_or_spec() {
         assert!(parser.tok.kind == TokenKind::EoF);
     }
 }
+
+#[test]
+fn test_alias() {
+    let tests = [
+        "alias SIGN: BIT is REAL_NUMBER (0);",
+        "alias MANTISSA: BIT_VECTOR (23 downto 0) is REAL_NUMBER (8 to 31);",
+        "alias EXPONENT: BIT_VECTOR (1 to 7) is REAL_NUMBER (1 to 7);",
+        "alias STD_BIT is STD.STANDARD.BIT;",
+        "alias '0' is STD.STANDARD.'0' [return STD.STANDARD.BIT];",
+        "alias '1' is STD.STANDARD.'1' [return STD.STANDARD.BIT];",
+        "alias \"and\" is STD.STANDARD.\"and\" [STD.STANDARD.BIT, STD.STANDARD.BIT return STD.STANDARD.BIT];",
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_alias_decl();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF);
+    }
+}
+
+#[test]
+fn test_subprogram_part() {
+    //
+    // Incomplete: Also test subprogram bodies as soon as
+    // we actually parse those.
+    //
+    let tests = [
+        "function F return INTEGER;",
+        "procedure Dump (F: inout Text; Value: Integer);",
+        "procedure Check (Setup: Time; signal D: Data; signal C: Clock);",
+        "function \"and\" (Left, Right: MVL) return MVL;",
+        "function \"not\" (Value: MVL) return MVL;",
+        "function \"xor\" (Right: MVL_Vector) return MVL;",
+        "procedure swap generic ( type T ) parameter ( a, b : inout T );",
+        "procedure int_swap is new swap generic map ( T => integer );",
+        "procedure vec_swap is new swap generic map ( T => bit_vector(0 to 7) );",
+        "procedure check_setup generic ( type signal_type; type clk_type; clk_active_value : clk_type; T_su : delay_length ) ( signal s : signal_type; signal clk : clk_type );",
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_subprogram_decl_part();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF, "{:?}", parser.tok);
+    }
+}
+
+#[test]
+fn test_packaging_decl() {
+    let tests = [
+"package TimeConstants is constant tPLH: Time := 10 ns;
+    type Tri is ('0', '1', 'Z', 'E');
+    function BitVal (Value: Tri) return Bit;
+    function TriVal (Value: Bit) return Tri;
+    type TriVector is array (Natural range <>) of Tri;
+    function Resolve (Sources: TriVector) return Tri;
+end package TriState;",
+
+"package integer_integer_pkg is new work.generic_pkg
+generic map ( T1 => integer, T2 => integer );",
+
+"package body ID_manager is
+    variable next_ID : natural := 0;
+    impure function get_ID return natural;
+end package body ID_manager;",
+
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_packing_decl();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF, "{:?}", parser.tok);
+    }
+}
+
+#[test]
+fn test_component_decl() {
+    let tests = [
+"component AND_GATE is
+    generic (I1toO, I2toO: DELAY_LENGTH := 4 ns);
+    port (I1, I2: in BIT; O: out BIT);
+end component AND_GATE;"
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_component_decl();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF, "{:?}", parser.tok);
+    }
+}
+
+#[test]
+fn test_configuration() {
+    let tests = [
+"configuration V4_27_87 of Processor is
+    use Work.all;
+    for Structure_View
+        for A1: ALU
+            use configuration TTL.SN74LS181;
+        end for;
+        for M1,M2,M3: MUX
+            use entity Multiplex4 (Behavior);
+        end for;
+        for all: Latch
+            -- use defaults
+        end for;
+    end for;
+end configuration V4_27_87;",
+
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_configuration();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF, "{:?}", parser.tok);
+    }
+}
