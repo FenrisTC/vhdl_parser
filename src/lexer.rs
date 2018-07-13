@@ -154,6 +154,11 @@ impl<'a> ScanInfo<'a> {
         return make_tok(start, self.byte_index, BitStringLiteral);
     }
 
+    pub fn reset_to_begin_of(&mut self, pos: &SrcPos) {
+        let byte_index = pos.0 as usize;
+        self.set_idx(byte_index);
+    }
+
     pub fn scan_token(&mut self) -> Token {
         self.skip_whitespace();
         if self.is_eof() { return make_tok(self.byte_index, self.byte_index, EoF); }

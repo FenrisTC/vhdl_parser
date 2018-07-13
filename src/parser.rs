@@ -93,22 +93,6 @@ impl<'a> ParseInfo<'a> {
         self.errors.push(err.clone());
         Err(err)
     }
-
-    /*
-    fn malformed_name_err<T>(&mut self) -> PResult<T> {
-        let err = ParseError::MalformedName;
-        self.errors.push(err.clone());
-        Err(err)
-    }
-    */
-    /*
-    fn expr_choices_without_designator<T>(&mut self) -> PResult<T> {
-        let err = ParseError::ExprChoicesWithoutDesignator;
-        self.errors.push(err.clone());
-        Err(err)
-    }
-    */
-
 }
 
 impl<'a> ParseInfo<'a> {
@@ -155,6 +139,11 @@ impl<'srcfile> ParseInfo<'srcfile> {
         let mut tok = self.scan.scan_token();
         while tok.kind == Comment { tok = self.scan.scan_token(); }
         self.tok = tok;
+    }
+
+    fn reset_to(&mut self, pos: &SrcPos) {
+        self.scan.reset_to_begin_of(pos);
+        self.advance_tok();
     }
 
     fn eat_expect(&mut self, kind: TokenKind) -> PResult<()> {
@@ -2544,6 +2533,47 @@ impl<'srcfile> ParseInfo<'srcfile> {
         }
         self.eat_expect(RParen)?;
         Ok(generics)
+    }
+
+    pub fn parse_concurrent_statement(&mut self) -> PResult<ConcurrentStatement> {
+        let start = self.pos();
+        let label = if self.tok_is(Ident) {
+            let pos = self.pos();
+            self.advance_tok();
+            if self.tok_is(Colon) {
+                self.advance_tok();
+                Some(Identifier { pos })
+            } else {
+                self.reset_to(&pos);
+                debug_assert!(self.tok.kind == Ident);
+                None
+            }
+        } else { None };
+
+        let is_postponed = if self.tok_is(Postponed) {
+            self.advance_tok();
+            true
+        } else { false };
+
+        //
+        // This seems to be a recurring theme, but if we're here
+        // we can parse the actual parameter part seperetaly, since
+        // the procedure name can't contain parentheses.
+        // We probably should do so…
+        //     Sebastian, 13.07.18
+        //
+        // concurrent_procedure_call ::=
+        //     [label:] [_postponed_] procedure_name [(actual_parameter_part)]
+        let name = self.parse_name()?;
+        let name = Box::new(name);
+
+        self.eat_expect(Semicolon)?;
+
+        let stmt = ConcurrentStatementKind::Procedure(ProcedureCall { name });
+        let stmt = Box::new(stmt);
+        let pos = start.to(&self.last_pos);
+
+        Ok(ConcurrentStatement { pos, label, is_postponed, stmt })
     }
 
     pub fn parse_entity_decl(&mut self) -> PResult<EntityDeclaration> {

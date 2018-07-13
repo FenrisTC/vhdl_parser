@@ -506,3 +506,30 @@ end configuration V4_27_87;",
         assert!(parser.tok.kind == TokenKind::EoF, "{:?}", parser.tok);
     }
 }
+
+#[test]
+fn test_concurrent_statement() {
+    let tests = [
+        "test_call;",
+        "test_call(parameter1, parameter2);",
+        "postponed test_call;",
+        "test: test_call;",
+    ];
+    for &test in tests.iter() {
+        println!();
+        println!("Testing: {}", test);
+
+        let mut ctx : ParseContext = test.into();
+        let mut parser : ParseInfo = (&mut ctx).into();
+        let ast_test = parser.parse_concurrent_statement();
+        if !ast_test.is_ok() {
+            println!("Err: {:?}", ast_test);
+        }
+        assert!(ast_test.is_ok());
+
+        let ast_test = ast_test.unwrap();
+        println!("Res: {:#?}", ast_test);
+
+        assert!(parser.tok.kind == TokenKind::EoF, "{:?}", parser.tok);
+    }
+}

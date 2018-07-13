@@ -1366,3 +1366,21 @@ impl Mode {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct ProcedureCall {
+    pub name: Box<Name>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConcurrentStatementKind {
+    Procedure(ProcedureCall),
+}
+
+#[derive(Debug, Clone)]
+pub struct ConcurrentStatement {
+    pub pos: SrcPos,
+    pub label: Option<Identifier>,
+    pub is_postponed: bool,
+    pub stmt: Box<ConcurrentStatementKind>,
+}
