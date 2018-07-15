@@ -2562,6 +2562,36 @@ impl<'srcfile> ParseInfo<'srcfile> {
         return Ok(ConcurrentStatement { pos, label, is_postponed, stmt, });
     }
 
+    pub fn parse_waveform(&mut self) -> PResult<Waveform> {
+        if self.tok_is(Unaffected) {
+            self.advance_tok();
+            Ok(Waveform::Unaffected(self.last_pos))
+        } else {
+            let mut forms = Vec::<WaveformElement>::default();
+            loop {
+                let start = self.pos();
+                let expr = if self.tok_is(Null) {
+                    Box::new(ExprOrNull::Null)
+                } else {
+                    let expr = self.parse_expression()?;
+                    Box::new(ExprOrNull::Expr(expr))
+                };
+                let time = if self.tok_is(After) {
+                    self.advance_tok();
+                    Some(Box::new(self.parse_expression()?))
+                } else { None };
+
+                let pos = start.to(&self.last_pos);
+
+                forms.push(WaveformElement { pos, expr, time });
+
+                if !self.tok_is(Comma) { break; }
+                self.advance_tok();
+            }
+            Ok(Waveform::Forms(forms))
+        }
+    }
+
     pub fn parse_concurrent_statement(&mut self) -> PResult<ConcurrentStatement> {
         let start = self.pos();
         let label = if self.tok_is(Ident) {
@@ -2642,6 +2672,7 @@ impl<'srcfile> ParseInfo<'srcfile> {
             //
             // concurrent_procedure_call ::=
             //     [label:] [_postponed_] procedure_name [(actual_parameter_part)]
+            let name_pos = self.pos();
             let name = self.parse_name()?;
             let name = Box::new(name);
 
@@ -2658,6 +2689,72 @@ impl<'srcfile> ParseInfo<'srcfile> {
                 if is_postponed    { return self.err(ParseError::PostponedComponentInst); }
                 return self.parse_component_inst_cont(ComponentInstantiationKind::Component, label.unwrap(), name, None);
             }
+
+            if self.tok_is(LEq) {
+                //
+                // concurrent_simple_signal_assignment ::=
+                //     target <= [_guarded_] [delay_mechanism] waveform;
+                // concurrent_conditional_signal_assignement ::=
+                //     target <= [_guarded_] [delay_mechanism] conditional_waveforms;
+                //
+                let target = Box::new(Target::Name(*name));
+                self.advance_tok();
+                let is_guarded = if self.tok_is(Guarded) { self.advance_tok(); true } else { false };
+                let delay = if self.tok_is(Transport) {
+                    let pos = self.pos();
+                    self.advance_tok();
+                    Some(Box::new(DelayMechanism::Transport(pos)))
+                } else if self.tok_is(Reject) {
+                    self.advance_tok();
+                    let expr = self.parse_expression()?;
+                    self.eat_expect(Inertial)?;
+                    Some(Box::new(DelayMechanism::Reject(expr)))
+                } else { None };
+
+                let wave = Box::new(self.parse_waveform()?);
+                if self.tok_is(When) {
+                    let condition = Box::new(self.parse_expression()?);
+                    let mut choices = Vec::<ConditionalWaveform>::default();
+                    choices.push ( ConditionalWaveform { pos: wave.pos().to(&condition.pos), wave, condition } );
+                    let mut final_choice = None;
+                    while self.tok_is(Else) {
+                        self.advance_tok();
+                        let wave = Box::new(self.parse_waveform()?);
+                        if self.tok_is(When) {
+                            let condition = Box::new(self.parse_expression()?);
+                            let pos = wave.pos().to(&condition.pos);
+                            choices.push( ConditionalWaveform { pos, wave, condition });
+                        } else {
+                            final_choice = Some(Box::new(self.parse_waveform()?));
+                            break;
+                        }
+                    }
+                    self.eat_expect(Semicolon)?;
+                    let pos = name_pos.to(&self.last_pos);
+
+                    let waveform = Box::new(ConditionalWaveforms { pos, choices, final_choice });
+                    let assignement = ConcurrentConditionalSignalAssignment {
+                        pos, target, is_guarded, delay, waveform
+                    };
+                    let pos = start.to(&self.last_pos);
+                    let stmt = Box::new(ConcurrentStatementKind::ConditionalAssignment(assignement));
+
+                    return Ok(ConcurrentStatement { pos, label, is_postponed, stmt });
+                }
+
+                self.eat_expect(Semicolon)?;
+                let pos = name_pos.to(&self.last_pos);
+                let waveform = wave;
+                let assignment = ConcurrentSimpleSignalAssignment { pos, target, is_guarded, delay, waveform };
+                let stmt = Box::new(ConcurrentStatementKind::SimpleAssignment(assignment));
+                let pos = start.to(&self.last_pos);
+
+                return Ok(ConcurrentStatement { pos, label, is_postponed, stmt });
+            }
+
+            //
+            // If we only have a name, this is  a procedure call.
+            //
             self.eat_expect(Semicolon)?;
 
             let stmt = ConcurrentStatementKind::Procedure(ProcedureCall { name });

@@ -1396,9 +1396,110 @@ pub struct ComponentInstantiationStatement {
 }
 
 #[derive(Debug, Clone)]
+pub enum ExprOrNull {
+    Expr(Expr),
+    Null,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaveformElement {
+    pub pos: SrcPos,
+    pub expr: Box<ExprOrNull>,
+    pub time: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DelayMechanism {
+    Transport(SrcPos),
+    Reject(Expr),
+}
+
+#[derive(Debug, Clone)]
+pub enum Target {
+    Name(Name),
+    Aggregate(Vec<AssocExpr>),
+}
+
+#[derive(Debug, Clone)]
+pub enum Waveform {
+    Unaffected(SrcPos),
+    Forms(Vec<WaveformElement>),
+}
+
+impl Waveform {
+    pub fn pos(&self) -> SrcPos {
+        match self {
+            Waveform::Unaffected(pos) => pos.clone(),
+            Waveform::Forms(forms) => forms.first().unwrap().pos.to(&forms.last().unwrap().pos)
+        }
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct ConditionalWaveform {
+    pub pos: SrcPos,
+    pub wave: Box<Waveform>,
+    pub condition: Box<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConditionalWaveforms {
+    pub pos: SrcPos,
+    pub choices: Vec<ConditionalWaveform>,
+    pub final_choice: Option<Box<Waveform>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectedWaveform {
+    pub pos: SrcPos,
+    pub wave: Box<Waveform>,
+    pub choices: Box<Expr>,
+    // Choices ::= Choice { _|_ Choice }
+    // Choice ::=
+    //       simple_expr | discrete_range | simple_name | others
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectedWaveforms {
+    pub pos: SrcPos,
+    pub choices: Vec<SelectedWaveform>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConcurrentSimpleSignalAssignment {
+    pub pos: SrcPos,
+    pub target: Box<Target>,
+    pub is_guarded: bool,
+    pub delay: Option<Box<DelayMechanism>>,
+    pub waveform: Box<Waveform>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConcurrentConditionalSignalAssignment {
+    pub pos: SrcPos,
+    pub target: Box<Target>,
+    pub is_guarded: bool,
+    pub delay: Option<Box<DelayMechanism>>,
+    pub waveform: Box<ConditionalWaveforms>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConcurrentSelectedSignalAssignment {
+    pub pos: SrcPos,
+    pub selection: Box<Expr>,
+    pub target: Box<Target>,
+    pub is_guarded: bool,
+    pub delay: Option<Box<DelayMechanism>>,
+    pub waveform: Box<SelectedWaveforms>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ConcurrentStatementKind {
     Procedure(ProcedureCall),
     Component(ComponentInstantiationStatement),
+    SimpleAssignment(ConcurrentSimpleSignalAssignment),
+    ConditionalAssignment(ConcurrentConditionalSignalAssignment),
     Assert(AssertStatement),
 }
 
